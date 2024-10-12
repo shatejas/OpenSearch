@@ -175,7 +175,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
      * Specific {@link IOContext} used to verify Lucene files footer checksums.
      * See {@link MetadataSnapshot#checksumFromLuceneFile(Directory, String, Map, Logger, Version, boolean)}
      */
-    public static final IOContext READONCE_CHECKSUM = new IOContext(IOContext.READONCE.context);
+    public static final IOContext READONCE_CHECKSUM = IOContext.READONCE;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final StoreDirectory directory;
