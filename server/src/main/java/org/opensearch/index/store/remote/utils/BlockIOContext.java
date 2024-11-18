@@ -26,7 +26,7 @@ public class BlockIOContext extends IOContext {
      * Constructor to initialise BlockIOContext with block related information
      */
     public BlockIOContext(IOContext ctx, long blockStart, long blockSize) {
-        super(ctx.context);
+        super(ctx.context, ctx.mergeInfo, ctx.flushInfo, ctx.readAdvice);;
         verifyBlockStartAndSize(blockStart, blockSize);
         this.blockStart = blockStart;
         this.blockSize = blockSize;

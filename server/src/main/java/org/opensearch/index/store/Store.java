@@ -176,7 +176,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
      * See {@link MetadataSnapshot#checksumFromLuceneFile(Directory, String, Map, Logger, Version, boolean)}
      */
     @Deprecated(forRemoval = true)
-    public static final IOContext READONCE_CHECKSUM = new IOContext(IOContext.READONCE.context);
+    public static final IOContext READONCE_CHECKSUM = IOContext.READONCE;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final StoreDirectory directory;
