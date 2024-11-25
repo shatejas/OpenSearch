@@ -143,6 +143,17 @@ public abstract class AbstractInternalProfileTree<PB extends AbstractProfileBrea
     }
 
     /**
+     * Peeks the last element (e.g last element) value on the stack
+     */
+    public PB getLastProfileBreakDown() {
+        Integer token = stack.peekLast();
+        if (token != null) {
+            return breakdowns.get(token);
+        }
+        return null;
+    }
+
+    /**
      * After the element has been run and profiled, we need to merge the flat timing map
      * with the dependency graph to build a data structure that mirrors the original
      * query tree

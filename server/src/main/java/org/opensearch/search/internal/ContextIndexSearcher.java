@@ -71,6 +71,7 @@ import org.opensearch.search.DocValueFormat;
 import org.opensearch.search.SearchService;
 import org.opensearch.search.approximate.ApproximateScoreQuery;
 import org.opensearch.search.dfs.AggregatedDfs;
+import org.opensearch.search.profile.AbstractProfiler;
 import org.opensearch.search.profile.ContextualProfileBreakdown;
 import org.opensearch.search.profile.Timer;
 import org.opensearch.search.profile.query.ProfileWeight;
@@ -153,6 +154,11 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
     public void setProfiler(QueryProfiler profiler) {
         this.profiler = profiler;
     }
+
+    public QueryProfiler getProfiler() {
+        return profiler;
+    }
+
 
     /**
      * Add a {@link Runnable} that will be run on a regular basis while accessing documents in the

@@ -62,11 +62,14 @@ public class AbstractProfiler<PB extends AbstractProfileBreakdown<?>, E> {
         profileTree.pollLast();
     }
 
+    public PB getLastProfileBreakDown() {
+        return profileTree.getLastProfileBreakDown();
+    }
+
     /**
      * @return a hierarchical representation of the profiled tree
      */
     public List<ProfileResult> getTree() {
         return profileTree.getTree();
     }
-
 }

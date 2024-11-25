@@ -48,7 +48,7 @@ import java.util.Collection;
  *
  * @opensearch.internal
  */
-final class ProfileScorer extends Scorer {
+public final class ProfileScorer extends Scorer {
 
     private final Scorer scorer;
     private ProfileWeight profileWeight;
@@ -56,7 +56,7 @@ final class ProfileScorer extends Scorer {
     private final Timer scoreTimer, nextDocTimer, advanceTimer, matchTimer, shallowAdvanceTimer, computeMaxScoreTimer,
         setMinCompetitiveScoreTimer;
 
-    ProfileScorer(ProfileWeight w, Scorer scorer, AbstractProfileBreakdown<QueryTimingType> profile) throws IOException {
+    public ProfileScorer(ProfileWeight w, Scorer scorer, AbstractProfileBreakdown<QueryTimingType> profile) throws IOException {
         super(w);
         this.scorer = scorer;
         this.profileWeight = w;

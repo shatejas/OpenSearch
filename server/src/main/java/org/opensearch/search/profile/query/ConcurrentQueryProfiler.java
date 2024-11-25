@@ -64,6 +64,15 @@ public final class ConcurrentQueryProfiler extends QueryProfiler {
         }
     }
 
+    @Override
+    public ContextualProfileBreakdown<QueryTimingType> getLastProfileBreakDown() {
+        ConcurrentQueryProfileTree concurrentProfileTree = threadToProfileTree.get(getCurrentThreadId());
+        if (concurrentProfileTree != null) {
+            concurrentProfileTree.getLastProfileBreakDown();
+        }
+        return null;
+    }
+
     /**
      * @return a hierarchical representation of the profiled tree
      */
