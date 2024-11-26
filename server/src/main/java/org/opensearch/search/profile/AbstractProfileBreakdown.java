@@ -34,6 +34,7 @@ package org.opensearch.search.profile;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static java.util.Collections.emptyMap;
@@ -76,11 +77,17 @@ public abstract class AbstractProfileBreakdown<T extends Enum<T>> {
      * Build a timing count breakdown for current instance
      */
     public Map<String, Long> toBreakdownMap() {
-        Map<String, Long> map = new HashMap<>(this.timings.length * 3);
+        Map<String, Long> map = new LinkedHashMap<>(this.timings.length * 3);
         for (T timingType : this.timingTypes) {
-            map.put(timingType.toString(), this.timings[timingType.ordinal()].getApproximateTiming());
-            map.put(timingType + TIMING_TYPE_COUNT_SUFFIX, this.timings[timingType.ordinal()].getCount());
-            map.put(timingType + TIMING_TYPE_START_TIME_SUFFIX, this.timings[timingType.ordinal()].getEarliestTimerStartTime());
+            long approxTime = this.timings[timingType.ordinal()].getApproximateTiming();
+            long count = this.timings[timingType.ordinal()].getCount();
+            long earliest = this.timings[timingType.ordinal()].getEarliestTimerStartTime();
+
+            if (approxTime > 0L || count > 0 || earliest > 0L) {
+                map.put(timingType.toString(), approxTime);
+                map.put(timingType + TIMING_TYPE_COUNT_SUFFIX, count);
+                map.put(timingType + TIMING_TYPE_START_TIME_SUFFIX, earliest);
+            }
         }
         return Collections.unmodifiableMap(map);
     }
