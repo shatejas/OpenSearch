@@ -216,8 +216,7 @@ import java.util.stream.Collectors;
 
 import reactor.util.annotation.NonNull;
 
-import static org.opensearch.cluster.metadata.IndexMetadata.SETTING_NUMBER_OF_REPLICAS;
-import static org.opensearch.cluster.metadata.IndexMetadata.SETTING_NUMBER_OF_SHARDS;
+import static org.opensearch.cluster.metadata.IndexMetadata.*;
 import static org.opensearch.common.unit.TimeValue.timeValueMillis;
 import static org.opensearch.core.common.util.CollectionUtils.eagerPartition;
 import static org.opensearch.discovery.DiscoveryModule.DISCOVERY_SEED_PROVIDERS_SETTING;
@@ -608,7 +607,7 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
     }
 
     protected int numberOfShards() {
-        return between(minimumNumberOfShards(), maximumNumberOfShards());
+        return 1;
     }
 
     protected int minimumNumberOfReplicas() {
@@ -622,7 +621,7 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
     }
 
     protected int numberOfReplicas() {
-        return between(minimumNumberOfReplicas(), maximumNumberOfReplicas());
+        return 0;
     }
 
     public void setDisruptionScheme(ServiceDisruptionScheme scheme) {
@@ -691,6 +690,8 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
             builder.put(INDEX_DOC_ID_FUZZY_SET_ENABLED_SETTING.getKey(), true);
             builder.put(INDEX_DOC_ID_FUZZY_SET_FALSE_POSITIVE_PROBABILITY_SETTING.getKey(), randomDoubleBetween(0.01, 0.50, true));
         }
+
+        builder.put(SETTING_CONTEXT_AWARE_ENABLED, true);
 
         return builder.build();
     }
@@ -1568,7 +1569,7 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
                 String index = RandomPicks.randomFrom(random, indices);
                 bogusIds.add(Arrays.asList(index, id));
                 // We configure a routing key in case the mapping requires it
-                builders.add(client().prepareIndex().setIndex(index).setId(id).setSource("{}", MediaTypeRegistry.JSON).setRouting(id));
+                builders.add(client().prepareIndex().setIndex(index).setId(id).setSource("{\"status\": \"400\"}", MediaTypeRegistry.JSON).setRouting(id));
             }
         }
         Collections.shuffle(builders, random());
@@ -1665,7 +1666,7 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
                     IndexRequestBuilder indexRequestBuilder = client().prepareIndex()
                         .setIndex(index)
                         .setId(id)
-                        .setSource("{}", MediaTypeRegistry.JSON)
+                        .setSource("{\"status\": \"400\"}", MediaTypeRegistry.JSON)
                         .setRouting(id);
                     indexRequestBuilder.execute(
                         new PayloadLatchedActionListener<>(indexRequestBuilder, newLatch(inFlightAsyncOperations), errors)

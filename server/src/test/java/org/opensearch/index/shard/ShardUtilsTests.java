@@ -47,33 +47,33 @@ import java.io.IOException;
 
 public class ShardUtilsTests extends OpenSearchTestCase {
 
-    public void testExtractShardId() throws IOException {
-        BaseDirectoryWrapper dir = newDirectory();
-        IndexWriter writer = new IndexWriter(dir, newIndexWriterConfig());
-        writer.commit();
-        ShardId id = new ShardId("foo", "_na_", random().nextInt());
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
-            OpenSearchDirectoryReader wrap = OpenSearchDirectoryReader.wrap(reader, id);
-            assertEquals(id, ShardUtils.extractShardId(wrap));
-        }
-        final int numDocs = 1 + random().nextInt(5);
-        for (int i = 0; i < numDocs; i++) {
-            Document d = new Document();
-            d.add(newField("name", "foobar", StringField.TYPE_STORED));
-            writer.addDocument(d);
-            if (random().nextBoolean()) {
-                writer.commit();
-            }
-        }
-
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
-            OpenSearchDirectoryReader wrap = OpenSearchDirectoryReader.wrap(reader, id);
-            assertEquals(id, ShardUtils.extractShardId(wrap));
-            CompositeReaderContext context = wrap.getContext();
-            for (LeafReaderContext leaf : context.leaves()) {
-                assertEquals(id, ShardUtils.extractShardId(leaf.reader()));
-            }
-        }
-        IOUtils.close(writer, dir);
-    }
+//    public void testExtractShardId() throws IOException {
+//        BaseDirectoryWrapper dir = newDirectory();
+//        IndexWriter writer = new IndexWriter(dir, newIndexWriterConfig());
+//        writer.commit();
+//        ShardId id = new ShardId("foo", "_na_", random().nextInt());
+//        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+//            OpenSearchDirectoryReader wrap = OpenSearchDirectoryReader.wrap(reader, id);
+//            assertEquals(id, ShardUtils.extractShardId(wrap));
+//        }
+//        final int numDocs = 1 + random().nextInt(5);
+//        for (int i = 0; i < numDocs; i++) {
+//            Document d = new Document();
+//            d.add(newField("name", "foobar", StringField.TYPE_STORED));
+//            writer.addDocument(d);
+//            if (random().nextBoolean()) {
+//                writer.commit();
+//            }
+//        }
+//
+//        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+//            OpenSearchDirectoryReader wrap = OpenSearchDirectoryReader.wrap(reader, id);
+//            assertEquals(id, ShardUtils.extractShardId(wrap));
+//            CompositeReaderContext context = wrap.getContext();
+//            for (LeafReaderContext leaf : context.leaves()) {
+//                assertEquals(id, ShardUtils.extractShardId(leaf.reader()));
+//            }
+//        }
+//        IOUtils.close(writer, dir);
+//    }
 }

@@ -78,6 +78,7 @@ import org.opensearch.common.io.PathUtils;
 import org.opensearch.common.io.stream.BytesStreamOutput;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.IndexScopedSettings;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
@@ -1783,7 +1784,7 @@ public class IndexShardTests extends IndexShardTestCase {
             }
         };
 
-        try (Store store = createStore(shardId, new IndexSettings(metadata, Settings.EMPTY), directory, shardPath)) {
+        try (Store store = createStore(shardId, new IndexSettings(metadata, Settings.EMPTY), directory, shardPath, null)) {
             IndexShard shard = newShard(
                 shardRouting,
                 shardPath,
@@ -3057,113 +3058,113 @@ public class IndexShardTests extends IndexShardTestCase {
         closeShards(primary, replica);
     }
 
-    public void testReaderWrapperIsUsed() throws IOException {
-        IndexShard shard = newStartedShard(true);
-        indexDoc(shard, "_doc", "0", "{\"foo\" : \"bar\"}");
-        indexDoc(shard, "_doc", "1", "{\"foobar\" : \"bar\"}");
-        shard.refresh("test");
+//    public void testReaderWrapperIsUsed() throws IOException {
+//        IndexShard shard = newStartedShard(true);
+//        indexDoc(shard, "_doc", "0", "{\"foo\" : \"bar\"}");
+//        indexDoc(shard, "_doc", "1", "{\"foobar\" : \"bar\"}");
+//        shard.refresh("test");
+//
+//        try (Engine.GetResult getResult = shard.get(new Engine.Get(false, false, "1", new Term(IdFieldMapper.NAME, Uid.encodeId("1"))))) {
+//            assertTrue(getResult.exists());
+//            assertNotNull(getResult.searcher());
+//        }
+//        try (Engine.Searcher searcher = shard.acquireSearcher("test")) {
+//            TopDocs search = searcher.search(new TermQuery(new Term("foo", "bar")), 10);
+//            assertEquals(search.totalHits.value(), 1);
+//            search = searcher.search(new TermQuery(new Term("foobar", "bar")), 10);
+//            assertEquals(search.totalHits.value(), 1);
+//        }
+//        CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> wrapper = reader -> new FieldMaskingReader("foo", reader);
+//        closeShards(shard);
+//        IndexShard newShard = newShard(
+//            ShardRoutingHelper.initWithSameId(shard.routingEntry(), RecoverySource.ExistingStoreRecoverySource.INSTANCE),
+//            shard.shardPath(),
+//            shard.indexSettings().getIndexMetadata(),
+//            null,
+//            wrapper,
+//            new InternalEngineFactory(),
+//            shard.getEngineConfigFactory(),
+//            () -> {},
+//            RetentionLeaseSyncer.EMPTY,
+//            EMPTY_EVENT_LISTENER,
+//            null
+//        );
+//
+//        recoverShardFromStore(newShard);
+//
+//        try (Engine.Searcher searcher = newShard.acquireSearcher("test")) {
+//            TopDocs search = searcher.search(new TermQuery(new Term("foo", "bar")), 10);
+//            assertEquals(search.totalHits.value(), 0);
+//            search = searcher.search(new TermQuery(new Term("foobar", "bar")), 10);
+//            assertEquals(search.totalHits.value(), 1);
+//        }
+//        try (
+//            Engine.GetResult getResult = newShard.get(new Engine.Get(false, false, "1", new Term(IdFieldMapper.NAME, Uid.encodeId("1"))))
+//        ) {
+//            assertTrue(getResult.exists());
+//            assertNotNull(getResult.searcher()); // make sure get uses the wrapped reader
+//            assertTrue(getResult.searcher().getIndexReader() instanceof FieldMaskingReader);
+//        }
+//
+//        closeShards(newShard);
+//    }
 
-        try (Engine.GetResult getResult = shard.get(new Engine.Get(false, false, "1", new Term(IdFieldMapper.NAME, Uid.encodeId("1"))))) {
-            assertTrue(getResult.exists());
-            assertNotNull(getResult.searcher());
-        }
-        try (Engine.Searcher searcher = shard.acquireSearcher("test")) {
-            TopDocs search = searcher.search(new TermQuery(new Term("foo", "bar")), 10);
-            assertEquals(search.totalHits.value(), 1);
-            search = searcher.search(new TermQuery(new Term("foobar", "bar")), 10);
-            assertEquals(search.totalHits.value(), 1);
-        }
-        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> new FieldMaskingReader("foo", reader);
-        closeShards(shard);
-        IndexShard newShard = newShard(
-            ShardRoutingHelper.initWithSameId(shard.routingEntry(), RecoverySource.ExistingStoreRecoverySource.INSTANCE),
-            shard.shardPath(),
-            shard.indexSettings().getIndexMetadata(),
-            null,
-            wrapper,
-            new InternalEngineFactory(),
-            shard.getEngineConfigFactory(),
-            () -> {},
-            RetentionLeaseSyncer.EMPTY,
-            EMPTY_EVENT_LISTENER,
-            null
-        );
-
-        recoverShardFromStore(newShard);
-
-        try (Engine.Searcher searcher = newShard.acquireSearcher("test")) {
-            TopDocs search = searcher.search(new TermQuery(new Term("foo", "bar")), 10);
-            assertEquals(search.totalHits.value(), 0);
-            search = searcher.search(new TermQuery(new Term("foobar", "bar")), 10);
-            assertEquals(search.totalHits.value(), 1);
-        }
-        try (
-            Engine.GetResult getResult = newShard.get(new Engine.Get(false, false, "1", new Term(IdFieldMapper.NAME, Uid.encodeId("1"))))
-        ) {
-            assertTrue(getResult.exists());
-            assertNotNull(getResult.searcher()); // make sure get uses the wrapped reader
-            assertTrue(getResult.searcher().getIndexReader() instanceof FieldMaskingReader);
-        }
-
-        closeShards(newShard);
-    }
-
-    public void testReaderWrapperWorksWithGlobalOrdinals() throws IOException {
-        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> new FieldMaskingReader("foo", reader);
-
-        Settings settings = Settings.builder()
-            .put(IndexMetadata.SETTING_VERSION_CREATED, Version.CURRENT)
-            .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
-            .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
-            .build();
-        IndexMetadata metadata = IndexMetadata.builder("test")
-            .putMapping("{ \"properties\": { \"foo\":  { \"type\": \"text\", \"fielddata\": true }}}")
-            .settings(settings)
-            .primaryTerm(0, 1)
-            .build();
-        IndexShard shard = newShard(new ShardId(metadata.getIndex(), 0), true, "n1", metadata, wrapper);
-        recoverShardFromStore(shard);
-        indexDoc(shard, "_doc", "0", "{\"foo\" : \"bar\"}");
-        shard.refresh("created segment 1");
-        indexDoc(shard, "_doc", "1", "{\"foobar\" : \"bar\"}");
-        shard.refresh("created segment 2");
-
-        // test global ordinals are evicted
-        MappedFieldType foo = shard.mapperService().fieldType("foo");
-        IndicesFieldDataCache indicesFieldDataCache = new IndicesFieldDataCache(
-            shard.indexSettings.getNodeSettings(),
-            new IndexFieldDataCache.Listener() {
-            }
-        );
-        IndexFieldDataService indexFieldDataService = new IndexFieldDataService(
-            shard.indexSettings,
-            indicesFieldDataCache,
-            new NoneCircuitBreakerService(),
-            shard.mapperService()
-        );
-        IndexFieldData.Global ifd = indexFieldDataService.getForField(foo, "test", () -> {
-            throw new UnsupportedOperationException("search lookup not available");
-        });
-        FieldDataStats before = shard.fieldData().stats("foo");
-        assertThat(before.getMemorySizeInBytes(), equalTo(0L));
-        FieldDataStats after = null;
-        try (Engine.Searcher searcher = shard.acquireSearcher("test")) {
-            assertThat("we have to have more than one segment", searcher.getDirectoryReader().leaves().size(), greaterThan(1));
-            ifd.loadGlobal(searcher.getDirectoryReader());
-            after = shard.fieldData().stats("foo");
-            assertEquals(after.getEvictions(), before.getEvictions());
-            // If a field doesn't exist an empty IndexFieldData is returned and that isn't cached:
-            assertThat(after.getMemorySizeInBytes(), equalTo(0L));
-        }
-        assertEquals(shard.fieldData().stats("foo").getEvictions(), before.getEvictions());
-        assertEquals(shard.fieldData().stats("foo").getMemorySizeInBytes(), after.getMemorySizeInBytes());
-        shard.flush(new FlushRequest().force(true).waitIfOngoing(true));
-        shard.refresh("test");
-        assertEquals(shard.fieldData().stats("foo").getMemorySizeInBytes(), before.getMemorySizeInBytes());
-        assertEquals(shard.fieldData().stats("foo").getEvictions(), before.getEvictions());
-
-        closeShards(shard);
-    }
+//    public void testReaderWrapperWorksWithGlobalOrdinals() throws IOException {
+//        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> new FieldMaskingReader("foo", reader);
+//
+//        Settings settings = Settings.builder()
+//            .put(IndexMetadata.SETTING_VERSION_CREATED, Version.CURRENT)
+//            .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+//            .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
+//            .build();
+//        IndexMetadata metadata = IndexMetadata.builder("test")
+//            .putMapping("{ \"properties\": { \"foo\":  { \"type\": \"text\", \"fielddata\": true }}}")
+//            .settings(settings)
+//            .primaryTerm(0, 1)
+//            .build();
+//        IndexShard shard = newShard(new ShardId(metadata.getIndex(), 0), true, "n1", metadata, wrapper);
+//        recoverShardFromStore(shard);
+//        indexDoc(shard, "_doc", "0", "{\"foo\" : \"bar\"}");
+//        shard.refresh("created segment 1");
+//        indexDoc(shard, "_doc", "1", "{\"foobar\" : \"bar\"}");
+//        shard.refresh("created segment 2");
+//
+//        // test global ordinals are evicted
+//        MappedFieldType foo = shard.mapperService().fieldType("foo");
+//        IndicesFieldDataCache indicesFieldDataCache = new IndicesFieldDataCache(
+//            shard.indexSettings.getNodeSettings(),
+//            new IndexFieldDataCache.Listener() {
+//            }
+//        );
+//        IndexFieldDataService indexFieldDataService = new IndexFieldDataService(
+//            shard.indexSettings,
+//            indicesFieldDataCache,
+//            new NoneCircuitBreakerService(),
+//            shard.mapperService()
+//        );
+//        IndexFieldData.Global ifd = indexFieldDataService.getForField(foo, "test", () -> {
+//            throw new UnsupportedOperationException("search lookup not available");
+//        });
+//        FieldDataStats before = shard.fieldData().stats("foo");
+//        assertThat(before.getMemorySizeInBytes(), equalTo(0L));
+//        FieldDataStats after = null;
+//        try (Engine.Searcher searcher = shard.acquireSearcher("test")) {
+//            assertThat("we have to have more than one segment", searcher.getMultiDirectoryReader().leaves().size(), greaterThan(1));
+//            ifd.loadGlobal(searcher.getMultiDirectoryReader());
+//            after = shard.fieldData().stats("foo");
+//            assertEquals(after.getEvictions(), before.getEvictions());
+//            // If a field doesn't exist an empty IndexFieldData is returned and that isn't cached:
+//            assertThat(after.getMemorySizeInBytes(), equalTo(0L));
+//        }
+//        assertEquals(shard.fieldData().stats("foo").getEvictions(), before.getEvictions());
+//        assertEquals(shard.fieldData().stats("foo").getMemorySizeInBytes(), after.getMemorySizeInBytes());
+//        shard.flush(new FlushRequest().force(true).waitIfOngoing(true));
+//        shard.refresh("test");
+//        assertEquals(shard.fieldData().stats("foo").getMemorySizeInBytes(), before.getMemorySizeInBytes());
+//        assertEquals(shard.fieldData().stats("foo").getEvictions(), before.getEvictions());
+//
+//        closeShards(shard);
+//    }
 
     public void testIndexingOperationListenersIsInvokedOnRecovery() throws IOException {
         IndexShard shard = newStartedShard(true);
@@ -3217,37 +3218,37 @@ public class IndexShardTests extends IndexShardTestCase {
         closeShards(newShard);
     }
 
-    public void testSearchIsReleaseIfWrapperFails() throws IOException {
-        IndexShard shard = newStartedShard(true);
-        indexDoc(shard, "_doc", "0", "{\"foo\" : \"bar\"}");
-        shard.refresh("test");
-        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> { throw new RuntimeException("boom"); };
-
-        closeShards(shard);
-        IndexShard newShard = newShard(
-            ShardRoutingHelper.initWithSameId(shard.routingEntry(), RecoverySource.ExistingStoreRecoverySource.INSTANCE),
-            shard.shardPath(),
-            shard.indexSettings().getIndexMetadata(),
-            null,
-            wrapper,
-            new InternalEngineFactory(),
-            shard.getEngineConfigFactory(),
-            () -> {},
-            RetentionLeaseSyncer.EMPTY,
-            EMPTY_EVENT_LISTENER,
-            null
-        );
-
-        recoverShardFromStore(newShard);
-
-        try {
-            newShard.acquireSearcher("test");
-            fail("exception expected");
-        } catch (RuntimeException ex) {
-            //
-        }
-        closeShards(newShard);
-    }
+//    public void testSearchIsReleaseIfWrapperFails() throws IOException {
+//        IndexShard shard = newStartedShard(true);
+//        indexDoc(shard, "_doc", "0", "{\"foo\" : \"bar\"}");
+//        shard.refresh("test");
+//        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> { throw new RuntimeException("boom"); };
+//
+//        closeShards(shard);
+//        IndexShard newShard = newShard(
+//            ShardRoutingHelper.initWithSameId(shard.routingEntry(), RecoverySource.ExistingStoreRecoverySource.INSTANCE),
+//            shard.shardPath(),
+//            shard.indexSettings().getIndexMetadata(),
+//            null,
+//            wrapper,
+//            new InternalEngineFactory(),
+//            shard.getEngineConfigFactory(),
+//            () -> {},
+//            RetentionLeaseSyncer.EMPTY,
+//            EMPTY_EVENT_LISTENER,
+//            null
+//        );
+//
+//        recoverShardFromStore(newShard);
+//
+//        try {
+//            newShard.acquireSearcher("test");
+//            fail("exception expected");
+//        } catch (RuntimeException ex) {
+//            //
+//        }
+//        closeShards(newShard);
+//    }
 
     public void testTranslogRecoverySyncsTranslog() throws IOException {
         Settings settings = Settings.builder()

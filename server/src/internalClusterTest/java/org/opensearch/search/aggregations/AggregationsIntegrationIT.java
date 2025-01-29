@@ -42,6 +42,9 @@ import org.opensearch.action.support.WriteRequest;
 import org.opensearch.cluster.metadata.IndexMetadata;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
+import org.opensearch.core.xcontent.MediaTypeRegistry;
+import org.opensearch.lucene.store.ByteBuffersDataOutput;
+import org.opensearch.lucene.store.ByteBuffersIndexOutput;
 import org.opensearch.search.aggregations.bucket.terms.IncludeExclude;
 import org.opensearch.search.aggregations.bucket.terms.RareTermsAggregationBuilder;
 import org.opensearch.search.aggregations.bucket.terms.SignificantTermsAggregationBuilder;
@@ -56,6 +59,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.zip.CRC32;
 
 import static org.opensearch.search.SearchService.CLUSTER_CONCURRENT_SEGMENT_SEARCH_MODE;
 import static org.opensearch.search.SearchService.CONCURRENT_SEGMENT_SEARCH_MODE_ALL;
@@ -95,11 +99,11 @@ public class AggregationsIntegrationIT extends ParameterizedStaticSettingsOpenSe
 
     @Override
     public void setupSuiteScopeCluster() throws Exception {
-        assertAcked(prepareCreate("index").setMapping("f", "type=keyword").get());
+        assertAcked(prepareCreate("index").setMapping("status", "type=keyword").get());
         numDocs = randomIntBetween(1, 20);
         List<IndexRequestBuilder> docs = new ArrayList<>();
         for (int i = 0; i < numDocs; ++i) {
-            docs.add(client().prepareIndex("index").setSource("f", Integer.toString(i / 3)));
+            docs.add(client().prepareIndex("index").setSource("{\"status\": \"200\"}", MediaTypeRegistry.JSON));
         }
         indexRandom(true, docs);
     }
@@ -109,13 +113,13 @@ public class AggregationsIntegrationIT extends ParameterizedStaticSettingsOpenSe
         SearchResponse response = client().prepareSearch("index")
             .setSize(size)
             .setScroll(TimeValue.timeValueMinutes(1))
-            .addAggregation(terms("f").field("f"))
+            .addAggregation(terms("status").field("status"))
             .get();
         assertSearchResponse(response);
         Aggregations aggregations = response.getAggregations();
         assertNotNull(aggregations);
-        Terms terms = aggregations.get("f");
-        assertEquals(Math.min(numDocs, 3L), terms.getBucketByKey("0").getDocCount());
+        Terms terms = aggregations.get("status");
+        assertEquals(numDocs, terms.getBucketByKey("200").getDocCount());
 
         int total = response.getHits().getHits().length;
         while (response.getHits().getHits().length > 0) {
@@ -130,7 +134,7 @@ public class AggregationsIntegrationIT extends ParameterizedStaticSettingsOpenSe
 
     public void testLargeRegExTermsAggregation() {
         for (TermsAggregatorFactory.ExecutionMode executionMode : TermsAggregatorFactory.ExecutionMode.values()) {
-            TermsAggregationBuilder termsAggregation = terms("my_terms").field("f")
+            TermsAggregationBuilder termsAggregation = terms("status").field("200")
                 .includeExclude(getLargeStringInclude())
                 .executionHint(executionMode.toString());
             runLargeStringAggregationTest(termsAggregation);

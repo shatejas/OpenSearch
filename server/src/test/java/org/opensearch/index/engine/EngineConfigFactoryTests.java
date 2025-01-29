@@ -71,7 +71,8 @@ public class EngineConfigFactoryTests extends OpenSearchTestCase {
             () -> Boolean.TRUE,
             new InternalTranslogFactory(),
             null,
-            null
+            null,
+            true
         );
 
         assertNotNull(config.getCodec());
@@ -152,7 +153,8 @@ public class EngineConfigFactoryTests extends OpenSearchTestCase {
             () -> Boolean.TRUE,
             new InternalTranslogFactory(),
             null,
-            null
+            null,
+            true
         );
         assertNotNull(config.getCodec());
     }

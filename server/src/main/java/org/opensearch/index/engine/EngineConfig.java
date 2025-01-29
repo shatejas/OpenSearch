@@ -247,6 +247,7 @@ public final class EngineConfig {
     private final TranslogConfig translogConfig;
 
     private final TranslogFactory translogFactory;
+    private final boolean isContextAwareEnabled;
 
     /**
      * Creates a new {@link org.opensearch.index.engine.EngineConfig}
@@ -299,6 +300,11 @@ public final class EngineConfig {
         this.translogFactory = builder.translogFactory;
         this.leafSorter = builder.leafSorter;
         this.documentMapperForTypeSupplier = builder.documentMapperForTypeSupplier;
+        this.isContextAwareEnabled = builder.isContextAwareEnabled;
+    }
+
+    public boolean isContextAwareEnabled() {
+        return isContextAwareEnabled;
     }
 
     /**
@@ -598,6 +604,7 @@ public final class EngineConfig {
         private TranslogFactory translogFactory = new InternalTranslogFactory();
         private Supplier<DocumentMapperForType> documentMapperForTypeSupplier;
         Comparator<LeafReader> leafSorter;
+        private boolean isContextAwareEnabled;
 
         public Builder shardId(ShardId shardId) {
             this.shardId = shardId;
@@ -736,6 +743,11 @@ public final class EngineConfig {
 
         public Builder leafSorter(Comparator<LeafReader> leafSorter) {
             this.leafSorter = leafSorter;
+            return this;
+        }
+
+        public Builder isContextAwareEnabled(boolean isContextAwareEnabled) {
+            this.isContextAwareEnabled = isContextAwareEnabled;
             return this;
         }
 

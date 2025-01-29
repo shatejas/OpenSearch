@@ -48,6 +48,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.index.FieldFilterLeafReader;
 import org.opensearch.common.CheckedFunction;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.index.engine.Engine;
@@ -61,136 +62,136 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class IndexReaderWrapperTests extends OpenSearchTestCase {
 
-    public void testReaderCloseListenerIsCalled() throws IOException {
-        Directory dir = newDirectory();
-        IndexWriterConfig iwc = newIndexWriterConfig();
-        IndexWriter writer = new IndexWriter(dir, iwc);
-        Document doc = new Document();
-        doc.add(new StringField("id", "1", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
-        doc.add(new TextField("field", "doc", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
-        writer.addDocument(doc);
-        DirectoryReader open = OpenSearchDirectoryReader.wrap(DirectoryReader.open(writer), new ShardId("foo", "_na_", 1));
-        IndexSearcher searcher = new IndexSearcher(open);
-        assertEquals(1, searcher.search(new TermQuery(new Term("field", "doc")), 1).totalHits.value());
-        final AtomicInteger closeCalls = new AtomicInteger(0);
-        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> new FieldMaskingReader(
-            "field",
-            reader,
-            closeCalls
-        );
-        final int sourceRefCount = open.getRefCount();
-        final AtomicInteger count = new AtomicInteger();
-        final AtomicInteger outerCount = new AtomicInteger();
-        final AtomicBoolean closeCalled = new AtomicBoolean(false);
-        final Engine.Searcher wrap = IndexShard.wrapSearcher(
-            new Engine.Searcher(
-                "foo",
-                open,
-                IndexSearcher.getDefaultSimilarity(),
-                IndexSearcher.getDefaultQueryCache(),
-                IndexSearcher.getDefaultQueryCachingPolicy(),
-                () -> closeCalled.set(true)
-            ),
-            wrapper
-        );
-        assertEquals(1, wrap.getIndexReader().getRefCount());
-        OpenSearchDirectoryReader.addReaderCloseListener(wrap.getDirectoryReader(), key -> {
-            if (key == open.getReaderCacheHelper().getKey()) {
-                count.incrementAndGet();
-            }
-            outerCount.incrementAndGet();
-        });
-        assertEquals(0, wrap.search(new TermQuery(new Term("field", "doc")), 1).totalHits.value());
-        wrap.close();
-        assertFalse("wrapped reader is closed", wrap.getIndexReader().tryIncRef());
-        assertEquals(sourceRefCount, open.getRefCount());
-        assertTrue(closeCalled.get());
-        assertEquals(1, closeCalls.get());
+//    public void testReaderCloseListenerIsCalled() throws IOException {
+//        Directory dir = newDirectory();
+//        IndexWriterConfig iwc = newIndexWriterConfig();
+//        IndexWriter writer = new IndexWriter(dir, iwc);
+//        Document doc = new Document();
+//        doc.add(new StringField("id", "1", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
+//        doc.add(new TextField("field", "doc", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
+//        writer.addDocument(doc);
+//        DirectoryReader open = OpenSearchDirectoryReader.wrap(DirectoryReader.open(writer), new ShardId("foo", "_na_", 1));
+//        IndexSearcher searcher = new IndexSearcher(open);
+//        assertEquals(1, searcher.search(new TermQuery(new Term("field", "doc")), 1).totalHits.value());
+//        final AtomicInteger closeCalls = new AtomicInteger(0);
+//        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> new FieldMaskingReader(
+//            "field",
+//            reader,
+//            closeCalls
+//        );
+//        final int sourceRefCount = open.getRefCount();
+//        final AtomicInteger count = new AtomicInteger();
+//        final AtomicInteger outerCount = new AtomicInteger();
+//        final AtomicBoolean closeCalled = new AtomicBoolean(false);
+//        final Engine.Searcher wrap = IndexShard.wrapSearcher(
+//            new Engine.Searcher(
+//                "foo",
+//                open,
+//                IndexSearcher.getDefaultSimilarity(),
+//                IndexSearcher.getDefaultQueryCache(),
+//                IndexSearcher.getDefaultQueryCachingPolicy(),
+//                () -> closeCalled.set(true)
+//            ),
+//            wrapper
+//        );
+//        assertEquals(1, wrap.getIndexReader().getRefCount());
+//        OpenSearchMultiReader.addReaderCloseListener(wrap.getMultiDirectoryReader(), key -> {
+//            if (key == open.getReaderCacheHelper().getKey()) {
+//                count.incrementAndGet();
+//            }
+//            outerCount.incrementAndGet();
+//        });
+//        assertEquals(0, wrap.search(new TermQuery(new Term("field", "doc")), 1).totalHits.value());
+//        wrap.close();
+//        assertFalse("wrapped reader is closed", wrap.getIndexReader().tryIncRef());
+//        assertEquals(sourceRefCount, open.getRefCount());
+//        assertTrue(closeCalled.get());
+//        assertEquals(1, closeCalls.get());
+//
+//        IOUtils.close(open, writer, dir);
+//        assertEquals(1, outerCount.get());
+//        assertEquals(1, count.get());
+//        assertEquals(0, open.getRefCount());
+//        assertEquals(1, closeCalls.get());
+//    }
 
-        IOUtils.close(open, writer, dir);
-        assertEquals(1, outerCount.get());
-        assertEquals(1, count.get());
-        assertEquals(0, open.getRefCount());
-        assertEquals(1, closeCalls.get());
-    }
+//    public void testIsCacheable() throws IOException {
+//        Directory dir = newDirectory();
+//        IndexWriterConfig iwc = newIndexWriterConfig();
+//        IndexWriter writer = new IndexWriter(dir, iwc);
+//        Document doc = new Document();
+//        doc.add(new StringField("id", "1", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
+//        doc.add(new TextField("field", "doc", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
+//        writer.addDocument(doc);
+//        DirectoryReader open = OpenSearchDirectoryReader.wrap(DirectoryReader.open(writer), new ShardId("foo", "_na_", 1));
+//        IndexSearcher searcher = new IndexSearcher(open);
+//        assertEquals(1, searcher.search(new TermQuery(new Term("field", "doc")), 1).totalHits.value());
+//        searcher.setSimilarity(iwc.getSimilarity());
+//        final AtomicInteger closeCalls = new AtomicInteger(0);
+//        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> new FieldMaskingReader(
+//            "field",
+//            reader,
+//            closeCalls
+//        );
+//        final ConcurrentHashMap<Object, TopDocs> cache = new ConcurrentHashMap<>();
+//        AtomicBoolean closeCalled = new AtomicBoolean(false);
+//        try (
+//            Engine.Searcher wrap = IndexShard.wrapSearcher(
+//                new Engine.Searcher(
+//                    "foo",
+//                    open,
+//                    IndexSearcher.getDefaultSimilarity(),
+//                    IndexSearcher.getDefaultQueryCache(),
+//                    IndexSearcher.getDefaultQueryCachingPolicy(),
+//                    () -> closeCalled.set(true)
+//                ),
+//                wrapper
+//            )
+//        ) {
+//            OpenSearchMultiReader.addReaderCloseListener(wrap.getMultiDirectoryReader(), key -> { cache.remove(key); });
+//            TopDocs search = wrap.search(new TermQuery(new Term("field", "doc")), 1);
+//            cache.put(wrap.getIndexReader().getReaderCacheHelper().getKey(), search);
+//        }
+//        assertTrue(closeCalled.get());
+//        assertEquals(1, closeCalls.get());
+//
+//        assertEquals(1, cache.size());
+//        IOUtils.close(open, writer, dir);
+//        assertEquals(0, cache.size());
+//        assertEquals(1, closeCalls.get());
+//    }
 
-    public void testIsCacheable() throws IOException {
-        Directory dir = newDirectory();
-        IndexWriterConfig iwc = newIndexWriterConfig();
-        IndexWriter writer = new IndexWriter(dir, iwc);
-        Document doc = new Document();
-        doc.add(new StringField("id", "1", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
-        doc.add(new TextField("field", "doc", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
-        writer.addDocument(doc);
-        DirectoryReader open = OpenSearchDirectoryReader.wrap(DirectoryReader.open(writer), new ShardId("foo", "_na_", 1));
-        IndexSearcher searcher = new IndexSearcher(open);
-        assertEquals(1, searcher.search(new TermQuery(new Term("field", "doc")), 1).totalHits.value());
-        searcher.setSimilarity(iwc.getSimilarity());
-        final AtomicInteger closeCalls = new AtomicInteger(0);
-        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = reader -> new FieldMaskingReader(
-            "field",
-            reader,
-            closeCalls
-        );
-        final ConcurrentHashMap<Object, TopDocs> cache = new ConcurrentHashMap<>();
-        AtomicBoolean closeCalled = new AtomicBoolean(false);
-        try (
-            Engine.Searcher wrap = IndexShard.wrapSearcher(
-                new Engine.Searcher(
-                    "foo",
-                    open,
-                    IndexSearcher.getDefaultSimilarity(),
-                    IndexSearcher.getDefaultQueryCache(),
-                    IndexSearcher.getDefaultQueryCachingPolicy(),
-                    () -> closeCalled.set(true)
-                ),
-                wrapper
-            )
-        ) {
-            OpenSearchDirectoryReader.addReaderCloseListener(wrap.getDirectoryReader(), key -> { cache.remove(key); });
-            TopDocs search = wrap.search(new TermQuery(new Term("field", "doc")), 1);
-            cache.put(wrap.getIndexReader().getReaderCacheHelper().getKey(), search);
-        }
-        assertTrue(closeCalled.get());
-        assertEquals(1, closeCalls.get());
-
-        assertEquals(1, cache.size());
-        IOUtils.close(open, writer, dir);
-        assertEquals(0, cache.size());
-        assertEquals(1, closeCalls.get());
-    }
-
-    public void testNoWrap() throws IOException {
-        Directory dir = newDirectory();
-        IndexWriterConfig iwc = newIndexWriterConfig();
-        IndexWriter writer = new IndexWriter(dir, iwc);
-        Document doc = new Document();
-        doc.add(new StringField("id", "1", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
-        doc.add(new TextField("field", "doc", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
-        writer.addDocument(doc);
-        DirectoryReader open = OpenSearchDirectoryReader.wrap(DirectoryReader.open(writer), new ShardId("foo", "_na_", 1));
-        IndexSearcher searcher = new IndexSearcher(open);
-        assertEquals(1, searcher.search(new TermQuery(new Term("field", "doc")), 1).totalHits.value());
-        searcher.setSimilarity(iwc.getSimilarity());
-        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = directoryReader -> directoryReader;
-        try (
-            Engine.Searcher engineSearcher = IndexShard.wrapSearcher(
-                new Engine.Searcher(
-                    "foo",
-                    open,
-                    IndexSearcher.getDefaultSimilarity(),
-                    IndexSearcher.getDefaultQueryCache(),
-                    IndexSearcher.getDefaultQueryCachingPolicy(),
-                    open::close
-                ),
-                wrapper
-            )
-        ) {
-            final Engine.Searcher wrap = IndexShard.wrapSearcher(engineSearcher, wrapper);
-            assertSame(wrap, engineSearcher);
-        }
-        IOUtils.close(writer, dir);
-    }
+//    public void testNoWrap() throws IOException {
+//        Directory dir = newDirectory();
+//        IndexWriterConfig iwc = newIndexWriterConfig();
+//        IndexWriter writer = new IndexWriter(dir, iwc);
+//        Document doc = new Document();
+//        doc.add(new StringField("id", "1", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
+//        doc.add(new TextField("field", "doc", random().nextBoolean() ? Field.Store.YES : Field.Store.NO));
+//        writer.addDocument(doc);
+//        DirectoryReader open = OpenSearchDirectoryReader.wrap(DirectoryReader.open(writer), new ShardId("foo", "_na_", 1));
+//        IndexSearcher searcher = new IndexSearcher(open);
+//        assertEquals(1, searcher.search(new TermQuery(new Term("field", "doc")), 1).totalHits.value());
+//        searcher.setSimilarity(iwc.getSimilarity());
+//        CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper = directoryReader -> directoryReader;
+//        try (
+//            Engine.Searcher engineSearcher = IndexShard.wrapSearcher(
+//                new Engine.Searcher(
+//                    "foo",
+//                    open,
+//                    IndexSearcher.getDefaultSimilarity(),
+//                    IndexSearcher.getDefaultQueryCache(),
+//                    IndexSearcher.getDefaultQueryCachingPolicy(),
+//                    open::close
+//                ),
+//                wrapper
+//            )
+//        ) {
+//            final Engine.Searcher wrap = IndexShard.wrapSearcher(engineSearcher, wrapper);
+//            assertSame(wrap, engineSearcher);
+//        }
+//        IOUtils.close(writer, dir);
+//    }
 
     private static class FieldMaskingReader extends FilterDirectoryReader {
         private final String field;

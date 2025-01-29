@@ -156,7 +156,8 @@ public class EngineConfigFactory {
         BooleanSupplier startedPrimarySupplier,
         TranslogFactory translogFactory,
         Comparator<LeafReader> leafSorter,
-        Supplier<DocumentMapperForType> documentMapperForTypeSupplier
+        Supplier<DocumentMapperForType> documentMapperForTypeSupplier,
+        boolean isContextAwareEnabled
     ) {
         CodecService codecServiceToUse = codecService;
         if (codecService == null && this.codecServiceFactory != null) {
@@ -191,6 +192,7 @@ public class EngineConfigFactory {
             .translogFactory(translogFactory)
             .leafSorter(leafSorter)
             .documentMapperForTypeSupplier(documentMapperForTypeSupplier)
+            .isContextAwareEnabled(isContextAwareEnabled)
             .build();
     }
 

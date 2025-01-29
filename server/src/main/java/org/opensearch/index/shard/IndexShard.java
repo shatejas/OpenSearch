@@ -40,8 +40,10 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FilterDirectoryReader;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexFileNames;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.SegmentInfos;
+import org.apache.lucene.index.StandardDirectoryReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryCachingPolicy;
@@ -88,6 +90,7 @@ import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.metrics.CounterMetric;
 import org.opensearch.common.metrics.MeanMetric;
 import org.opensearch.common.settings.Settings;
@@ -211,6 +214,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -329,7 +333,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         IndexShardState.STARTED
     );
 
-    private final CheckedFunction<DirectoryReader, DirectoryReader, IOException> readerWrapper;
+    private final CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> readerWrapper;
 
     /**
      * True if this shard is still indexing (recently) and false if we've been idle for long enough (as periodically checked by {@link
@@ -374,7 +378,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         final EngineFactory engineFactory,
         final EngineConfigFactory engineConfigFactory,
         final IndexEventListener indexEventListener,
-        final CheckedFunction<DirectoryReader, DirectoryReader, IOException> indexReaderWrapper,
+        final CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> indexReaderWrapper,
         final ThreadPool threadPool,
         final BigArrays bigArrays,
         final Engine.Warmer warmer,
@@ -517,7 +521,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      * To be delegated to {@link ReplicationTracker} so that relevant remote store based
      * operations can be ignored during engine migration
      * <p>
-     * Has explicit null checks to ensure that the {@link ReplicationTracker#invariant()}
+     * Has explicit null checks to ensure that the
      * checks does not fail during a cluster manager state update when the latest replication group
      * calculation is not yet done and the cached replication group details are available
      */
@@ -1704,7 +1708,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      * Snapshots the most recent safe index commit from the currently running engine.
      * All index files referenced by this index commit won't be freed until the commit/snapshot is closed.
      */
-    public GatedCloseable<IndexCommit> acquireSafeIndexCommit() throws EngineException {
+    public GatedCloseable<IndexCommit> acquireSafeIndexCommit() throws EngineException, IOException {
         final IndexShardState state = this.state; // one time volatile read
         // we allow snapshot on closed index shard, since we want to do one after we close the shard and before we close the engine
         if (state == IndexShardState.STARTED || state == IndexShardState.CLOSED) {
@@ -1945,8 +1949,13 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
     }
 
     private Engine.Searcher wrapSearcher(Engine.Searcher searcher) {
-        assert OpenSearchDirectoryReader.unwrap(searcher.getDirectoryReader()) != null
-            : "DirectoryReader must be an instance or OpenSearchDirectoryReader";
+        try {
+            assert OpenSearchMultiReader.unwrap(searcher.getMultiDirectoryReader()) != null
+                : "DirectoryReader must be an instance or OpenSearchDirectoryReader";
+        } catch (IOException e) {
+            throw new AssertionError("DirectoryReader must be an instance or OpenSearchDirectoryReader", e);
+        }
+
         boolean success = false;
         try {
             final Engine.Searcher newSearcher = readerWrapper == null ? searcher : wrapSearcher(searcher, readerWrapper);
@@ -1964,26 +1973,25 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
     static Engine.Searcher wrapSearcher(
         Engine.Searcher engineSearcher,
-        CheckedFunction<DirectoryReader, DirectoryReader, IOException> readerWrapper
+        CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> readerWrapper
     ) throws IOException {
         assert readerWrapper != null;
-        final OpenSearchDirectoryReader openSearchDirectoryReader = OpenSearchDirectoryReader.getOpenSearchDirectoryReader(
-            engineSearcher.getDirectoryReader()
-        );
-        if (openSearchDirectoryReader == null) {
+        final OpenSearchMultiReader openSearchMultiReader = engineSearcher.getMultiDirectoryReader();
+        if (openSearchMultiReader == null) {
             throw new IllegalStateException("Can't wrap non opensearch directory reader");
         }
-        NonClosingReaderWrapper nonClosingReaderWrapper = new NonClosingReaderWrapper(engineSearcher.getDirectoryReader());
-        DirectoryReader reader = readerWrapper.apply(nonClosingReaderWrapper);
+
+        OpenSearchMultiReader nonClosingReaderWrapper = wrapMultiReaderNonClosing(openSearchMultiReader);
+        OpenSearchMultiReader reader = readerWrapper.apply(nonClosingReaderWrapper);
         if (reader != nonClosingReaderWrapper) {
-            if (reader.getReaderCacheHelper() != openSearchDirectoryReader.getReaderCacheHelper()) {
+            if (reader.getReaderCacheHelper() != openSearchMultiReader.getReaderCacheHelper()) {
                 throw new IllegalStateException(
                     "wrapped directory reader doesn't delegate IndexReader#getCoreCacheKey,"
                         + " wrappers must override this method and delegate to the original readers core cache key. Wrapped readers can't be "
                         + "used as cache keys since their are used only per request which would lead to subtle bugs"
                 );
             }
-            if (OpenSearchDirectoryReader.getOpenSearchDirectoryReader(reader) != openSearchDirectoryReader) {
+            if (OpenSearchMultiReader.getOpenSearchMultiDirectoryReader(reader) != openSearchMultiReader) {
                 // prevent that somebody wraps with a non-filter reader
                 throw new IllegalStateException("wrapped directory reader hides actual OpenSearchDirectoryReader but shouldn't");
             }
@@ -2024,6 +2032,16 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      */
     public void resetToWriteableEngine() throws IOException, InterruptedException, TimeoutException {
         indexShardOperationPermits.blockOperations(30, TimeUnit.MINUTES, () -> { resetEngineToGlobalCheckpoint(); });
+    }
+
+    private static OpenSearchMultiReader wrapMultiReaderNonClosing(OpenSearchMultiReader multiReader) throws IOException {
+        Map<String, DirectoryReader> childReaderCriteriaMap = new HashMap<>();
+        for (Map.Entry<String, DirectoryReader> childReaderEntry: multiReader.getSubReadersMap().entrySet()) {
+            NonClosingReaderWrapper nonClosingReaderWrapper = new NonClosingReaderWrapper(childReaderEntry.getValue());
+            childReaderCriteriaMap.put(childReaderEntry.getKey(), nonClosingReaderWrapper);
+        }
+
+        return new OpenSearchMultiReader(multiReader.getDirectory(), childReaderCriteriaMap, multiReader.shardId());
     }
 
     /**
@@ -4078,7 +4096,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             translogFactorySupplier.apply(indexSettings, shardRouting),
             isTimeSeriesDescSortOptimizationEnabled() ? DataStream.TIMESERIES_LEAF_SORTER : null, // DESC @timestamp default order for
             // timeseries
-            () -> docMapper()
+            () -> docMapper(),
+            indexSettings.isContextAwareEnabled()
         );
     }
 
@@ -4962,7 +4981,12 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                         if (newEngineReference.get() == null) {
                             throw new AlreadyClosedException("engine was closed");
                         }
-                        return newEngineReference.get().acquireSafeIndexCommit();
+                        try {
+                            return newEngineReference.get().acquireSafeIndexCommit();
+                        } catch (Exception e) {
+                            throw new AlreadyClosedException(e.getMessage());
+                        }
+
                     }
                 }
 

@@ -34,6 +34,7 @@ package org.opensearch.index.engine;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.MultiReader;
 import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.SoftDeletesDirectoryReaderWrapper;
 import org.apache.lucene.search.ReferenceManager;
@@ -42,7 +43,9 @@ import org.apache.lucene.store.Lock;
 import org.opensearch.Version;
 import org.opensearch.common.concurrent.GatedCloseable;
 import org.opensearch.common.lucene.Lucene;
+import org.opensearch.common.lucene.index.CriteriaBasedCompositeDirectory;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.index.seqno.SeqNoStats;
 import org.opensearch.index.seqno.SequenceNumbers;
@@ -60,8 +63,13 @@ import org.opensearch.transport.Transports;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -87,7 +95,7 @@ public class ReadOnlyEngine extends Engine {
     private final SeqNoStats seqNoStats;
     private final OpenSearchReaderManager readerManager;
     private final IndexCommit indexCommit;
-    private final Lock indexWriterLock;
+    private final List<Lock> indexWriterLockList;
     private final SafeCommitInfo safeCommitInfo;
     private final CompletionStatsCache completionStatsCache;
     private final boolean requireCompleteHistory;
@@ -95,6 +103,7 @@ public class ReadOnlyEngine extends Engine {
     private final Version minimumSupportedVersion;
 
     protected volatile TranslogStats translogStats;
+    private final ContextAwareIndexWriterReadOnlyCombinedView combinedView;
 
     /**
      * Creates a new ReadOnlyEngine. This ctor can also be used to open a read-only engine on top of an already opened
@@ -124,30 +133,36 @@ public class ReadOnlyEngine extends Engine {
         try {
             Store store = config.getStore();
             store.incRef();
-            OpenSearchDirectoryReader reader = null;
+            OpenSearchMultiReader reader = null;
             Directory directory = store.directory();
-            Lock indexWriterLock = null;
+            List<Lock> indexWriterLockList = new ArrayList<>();
             boolean success = false;
             try {
+                assert directory instanceof CriteriaBasedCompositeDirectory;
+                CriteriaBasedCompositeDirectory compositeDirectory = (CriteriaBasedCompositeDirectory) directory;
                 // we obtain the IW lock even though we never modify the index.
                 // yet this makes sure nobody else does. including some testing tools that try to be messy
-                indexWriterLock = obtainLock ? directory.obtainLock(IndexWriter.WRITE_LOCK_NAME) : null;
-                if (isExtendedCompatibility()) {
-                    this.lastCommittedSegmentInfos = Lucene.readSegmentInfos(directory, this.minimumSupportedVersion);
-                } else {
-                    this.lastCommittedSegmentInfos = Lucene.readSegmentInfos(directory);
+                for (Directory childDirectory: compositeDirectory.getChildDirectoryList()) {
+                    indexWriterLockList.add(childDirectory.obtainLock(IndexWriter.WRITE_LOCK_NAME));
                 }
+
+                this.combinedView = new ContextAwareIndexWriterReadOnlyCombinedView(compositeDirectory, shardId);
+                this.lastCommittedSegmentInfos = combinedView.getLatestSegmentInfos(isExtendedCompatibility(), this.minimumSupportedVersion);
                 if (seqNoStats == null) {
                     seqNoStats = buildSeqNoStats(config, lastCommittedSegmentInfos);
                     ensureMaxSeqNoEqualsToGlobalCheckpoint(seqNoStats);
                 }
                 this.seqNoStats = seqNoStats;
-                this.indexCommit = Lucene.getIndexCommit(lastCommittedSegmentInfos, directory);
-                reader = wrapReader(open(indexCommit), readerWrapperFunction);
+
+                // TODO: Fix this.
+                this.indexCommit = Lucene.getCombinedIndexCommit(lastCommittedSegmentInfos, directory, combinedView.getChildLastGenerationList());
+                Map<String, DirectoryReader> readerMap = new HashMap<>();
+                readerMap.put("200", wrapReader(open(indexCommit), readerWrapperFunction));
+                reader = new OpenSearchMultiReader(store.directory(),readerMap, shardId);
                 readerManager = new OpenSearchReaderManager(reader);
                 assert translogStats != null || obtainLock : "mutiple translogs instances should not be opened at the same time";
                 this.translogStats = translogStats != null ? translogStats : translogStats(config, lastCommittedSegmentInfos);
-                this.indexWriterLock = indexWriterLock;
+                this.indexWriterLockList = indexWriterLockList;
                 this.safeCommitInfo = new SafeCommitInfo(seqNoStats.getLocalCheckpoint(), lastCommittedSegmentInfos.totalMaxDoc());
 
                 completionStatsCache = new CompletionStatsCache(() -> acquireSearcher("completion_stats"));
@@ -157,7 +172,8 @@ public class ReadOnlyEngine extends Engine {
                 success = true;
             } finally {
                 if (success == false) {
-                    IOUtils.close(reader, indexWriterLock, store::decRef);
+                    IOUtils.close(reader, store::decRef);
+                    IOUtils.close(indexWriterLockList);
                 }
             }
         } catch (IOException e) {
@@ -229,7 +245,8 @@ public class ReadOnlyEngine extends Engine {
     protected void closeNoLock(String reason, CountDownLatch closedLatch) {
         if (isClosed.compareAndSet(false, true)) {
             try {
-                IOUtils.close(readerManager, indexWriterLock, store::decRef);
+                IOUtils.close(readerManager, store::decRef);
+                IOUtils.close(indexWriterLockList);
             } catch (Exception ex) {
                 logger.warn("failed to close reader", ex);
             } finally {
@@ -280,7 +297,7 @@ public class ReadOnlyEngine extends Engine {
     }
 
     @Override
-    protected ReferenceManager<OpenSearchDirectoryReader> getReferenceManager(SearcherScope scope) {
+    protected ReferenceManager<OpenSearchMultiReader> getReferenceManager(SearcherScope scope) {
         return readerManager;
     }
 

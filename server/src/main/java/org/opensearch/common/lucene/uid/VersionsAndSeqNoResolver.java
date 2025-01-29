@@ -32,15 +32,18 @@
 
 package org.opensearch.common.lucene.uid;
 
+import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.util.CloseableThreadLocal;
 import org.opensearch.common.annotation.PublicApi;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.util.concurrent.ConcurrentCollections;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentMap;
@@ -147,6 +150,18 @@ public final class VersionsAndSeqNoResolver {
             this.seqNo = seqNo;
             this.context = context;
         }
+    }
+
+    // A way to combine DelegatingCacheHelper for DirectoryReader.
+    public static DocIdAndVersion loadDocIdAndVersion(OpenSearchMultiReader reader, Term term, boolean loadSeqNo) throws IOException {
+        for (DirectoryReader childReader : reader.getSubReadersMap().values()) {
+            DocIdAndVersion docIdAndVersion = loadDocIdAndVersion(childReader, term, loadSeqNo);
+            if (docIdAndVersion != null) {
+                return docIdAndVersion;
+            }
+        }
+
+        return null;
     }
 
     /**

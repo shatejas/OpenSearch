@@ -14,6 +14,7 @@ import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.index.engine.Engine;
 import org.opensearch.search.aggregations.bucket.global.GlobalAggregator;
 import org.opensearch.search.internal.ContextIndexSearcher;
@@ -162,9 +163,9 @@ public class AggregationProcessorTests extends AggregationSetupTests {
 
         // Build a ContextIndexSearcher that stubs slices to return slicesToReturn. Slices is protected in IndexReader
         // so this builds a real object. The DirectoryReader fetched to build the object is not used for any searches.
-        final DirectoryReader reader;
+        final OpenSearchMultiReader reader;
         try (Engine.Searcher searcher = context.indexShard().acquireSearcher("test")) {
-            reader = searcher.getDirectoryReader();
+            reader = searcher.getMultiDirectoryReader();
         }
         ContextIndexSearcher testSearcher = spy(
             new ContextIndexSearcher(

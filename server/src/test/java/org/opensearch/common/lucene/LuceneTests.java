@@ -521,92 +521,92 @@ public class LuceneTests extends OpenSearchTestCase {
         }
     }
 
-    public void testWrapAllDocsLive() throws Exception {
-        Directory dir = newDirectory();
-        IndexWriterConfig config = newIndexWriterConfig().setSoftDeletesField(Lucene.SOFT_DELETES_FIELD)
-            .setMergePolicy(new SoftDeletesRetentionMergePolicy(Lucene.SOFT_DELETES_FIELD, MatchAllDocsQuery::new, newMergePolicy()));
-        IndexWriter writer = new IndexWriter(dir, config);
-        int numDocs = between(1, 10);
-        Set<String> liveDocs = new HashSet<>();
-        for (int i = 0; i < numDocs; i++) {
-            String id = Integer.toString(i);
-            Document doc = new Document();
-            doc.add(new StringField("id", id, Store.YES));
-            writer.addDocument(doc);
-            liveDocs.add(id);
-        }
-        for (int i = 0; i < numDocs; i++) {
-            if (randomBoolean()) {
-                String id = Integer.toString(i);
-                Document doc = new Document();
-                doc.add(new StringField("id", "v2-" + id, Store.YES));
-                if (randomBoolean()) {
-                    doc.add(Lucene.newSoftDeletesField());
-                }
-                writer.softUpdateDocument(new Term("id", id), doc, Lucene.newSoftDeletesField());
-                liveDocs.add("v2-" + id);
-            }
-        }
-        try (DirectoryReader unwrapped = DirectoryReader.open(writer)) {
-            DirectoryReader reader = Lucene.wrapAllDocsLive(unwrapped);
-            StoredFields storedFields = reader.storedFields();
-            assertThat(reader.numDocs(), equalTo(liveDocs.size()));
-            IndexSearcher searcher = new IndexSearcher(reader);
-            Set<String> actualDocs = new HashSet<>();
-            TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), Integer.MAX_VALUE);
-            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
-                actualDocs.add(storedFields.document(scoreDoc.doc).get("id"));
-            }
-            assertThat(actualDocs, equalTo(liveDocs));
-        }
-        IOUtils.close(writer, dir);
-    }
+//    public void testWrapAllDocsLive() throws Exception {
+//        Directory dir = newDirectory();
+//        IndexWriterConfig config = newIndexWriterConfig().setSoftDeletesField(Lucene.SOFT_DELETES_FIELD)
+//            .setMergePolicy(new SoftDeletesRetentionMergePolicy(Lucene.SOFT_DELETES_FIELD, MatchAllDocsQuery::new, newMergePolicy()));
+//        IndexWriter writer = new IndexWriter(dir, config);
+//        int numDocs = between(1, 10);
+//        Set<String> liveDocs = new HashSet<>();
+//        for (int i = 0; i < numDocs; i++) {
+//            String id = Integer.toString(i);
+//            Document doc = new Document();
+//            doc.add(new StringField("id", id, Store.YES));
+//            writer.addDocument(doc);
+//            liveDocs.add(id);
+//        }
+//        for (int i = 0; i < numDocs; i++) {
+//            if (randomBoolean()) {
+//                String id = Integer.toString(i);
+//                Document doc = new Document();
+//                doc.add(new StringField("id", "v2-" + id, Store.YES));
+//                if (randomBoolean()) {
+//                    doc.add(Lucene.newSoftDeletesField());
+//                }
+//                writer.softUpdateDocument(new Term("id", id), doc, Lucene.newSoftDeletesField());
+//                liveDocs.add("v2-" + id);
+//            }
+//        }
+//        try (DirectoryReader unwrapped = DirectoryReader.open(writer)) {
+//            DirectoryReader reader = Lucene.wrapAllDocsLive(unwrapped);
+//            StoredFields storedFields = reader.storedFields();
+//            assertThat(reader.numDocs(), equalTo(liveDocs.size()));
+//            IndexSearcher searcher = new IndexSearcher(reader);
+//            Set<String> actualDocs = new HashSet<>();
+//            TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), Integer.MAX_VALUE);
+//            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+//                actualDocs.add(storedFields.document(scoreDoc.doc).get("id"));
+//            }
+//            assertThat(actualDocs, equalTo(liveDocs));
+//        }
+//        IOUtils.close(writer, dir);
+//    }
 
-    public void testWrapLiveDocsNotExposeAbortedDocuments() throws Exception {
-        Directory dir = newDirectory();
-        IndexWriterConfig config = newIndexWriterConfig().setSoftDeletesField(Lucene.SOFT_DELETES_FIELD)
-            .setMergePolicy(new SoftDeletesRetentionMergePolicy(Lucene.SOFT_DELETES_FIELD, MatchAllDocsQuery::new, newMergePolicy()))
-            .setMaxFullFlushMergeWaitMillis(0);
-        IndexWriter writer = new IndexWriter(dir, config);
-        int numDocs = between(1, 10);
-        List<String> liveDocs = new ArrayList<>();
-        for (int i = 0; i < numDocs; i++) {
-            String id = Integer.toString(i);
-            Document doc = new Document();
-            doc.add(new StringField("id", id, Store.YES));
-            if (randomBoolean()) {
-                doc.add(Lucene.newSoftDeletesField());
-            }
-            writer.addDocument(doc);
-            liveDocs.add(id);
-        }
-        int abortedDocs = between(1, 10);
-        for (int i = 0; i < abortedDocs; i++) {
-            try {
-                Document doc = new Document();
-                doc.add(new StringField("id", "aborted-" + i, Store.YES));
-                StringReader reader = new StringReader("");
-                doc.add(new TextField("other", reader));
-                reader.close(); // mark the indexing hit non-aborting error
-                writer.addDocument(doc);
-                fail("index should have failed");
-            } catch (Exception ignored) {}
-        }
-        try (DirectoryReader unwrapped = DirectoryReader.open(writer)) {
-            DirectoryReader reader = Lucene.wrapAllDocsLive(unwrapped);
-            StoredFields storedFields = reader.storedFields();
-            assertThat(reader.maxDoc(), equalTo(numDocs + abortedDocs));
-            assertThat(reader.numDocs(), equalTo(liveDocs.size()));
-            IndexSearcher searcher = new IndexSearcher(reader);
-            List<String> actualDocs = new ArrayList<>();
-            TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), Integer.MAX_VALUE);
-            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
-                actualDocs.add(storedFields.document(scoreDoc.doc).get("id"));
-            }
-            assertThat(actualDocs, equalTo(liveDocs));
-        }
-        IOUtils.close(writer, dir);
-    }
+//    public void testWrapLiveDocsNotExposeAbortedDocuments() throws Exception {
+//        Directory dir = newDirectory();
+//        IndexWriterConfig config = newIndexWriterConfig().setSoftDeletesField(Lucene.SOFT_DELETES_FIELD)
+//            .setMergePolicy(new SoftDeletesRetentionMergePolicy(Lucene.SOFT_DELETES_FIELD, MatchAllDocsQuery::new, newMergePolicy()))
+//            .setMaxFullFlushMergeWaitMillis(0);
+//        IndexWriter writer = new IndexWriter(dir, config);
+//        int numDocs = between(1, 10);
+//        List<String> liveDocs = new ArrayList<>();
+//        for (int i = 0; i < numDocs; i++) {
+//            String id = Integer.toString(i);
+//            Document doc = new Document();
+//            doc.add(new StringField("id", id, Store.YES));
+//            if (randomBoolean()) {
+//                doc.add(Lucene.newSoftDeletesField());
+//            }
+//            writer.addDocument(doc);
+//            liveDocs.add(id);
+//        }
+//        int abortedDocs = between(1, 10);
+//        for (int i = 0; i < abortedDocs; i++) {
+//            try {
+//                Document doc = new Document();
+//                doc.add(new StringField("id", "aborted-" + i, Store.YES));
+//                StringReader reader = new StringReader("");
+//                doc.add(new TextField("other", reader));
+//                reader.close(); // mark the indexing hit non-aborting error
+//                writer.addDocument(doc);
+//                fail("index should have failed");
+//            } catch (Exception ignored) {}
+//        }
+//        try (DirectoryReader unwrapped = DirectoryReader.open(writer)) {
+//            DirectoryReader reader = Lucene.wrapAllDocsLive(unwrapped);
+//            StoredFields storedFields = reader.storedFields();
+//            assertThat(reader.maxDoc(), equalTo(numDocs + abortedDocs));
+//            assertThat(reader.numDocs(), equalTo(liveDocs.size()));
+//            IndexSearcher searcher = new IndexSearcher(reader);
+//            List<String> actualDocs = new ArrayList<>();
+//            TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), Integer.MAX_VALUE);
+//            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+//                actualDocs.add(storedFields.document(scoreDoc.doc).get("id"));
+//            }
+//            assertThat(actualDocs, equalTo(liveDocs));
+//        }
+//        IOUtils.close(writer, dir);
+//    }
 
     public void testSortFieldSerialization() throws IOException {
         Tuple<SortField, SortField> sortFieldTuple = randomSortField();

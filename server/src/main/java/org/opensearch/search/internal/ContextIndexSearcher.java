@@ -60,12 +60,16 @@ import org.apache.lucene.search.TopFieldDocs;
 import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.search.similarities.Similarity;
+import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.SparseFixedBitSet;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.common.lease.Releasable;
+import org.opensearch.common.lucene.index.CriteriaBasedCompositeDirectory;
+import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.lucene.search.TopDocsAndMaxScore;
 import org.opensearch.lucene.util.CombinedBitSet;
 import org.opensearch.search.DocValueFormat;
@@ -85,8 +89,10 @@ import org.opensearch.search.sort.MinAndMax;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -143,12 +149,23 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
         Executor executor,
         SearchContext searchContext
     ) throws IOException {
-        super(wrapWithExitableDirectoryReader ? new ExitableDirectoryReader((DirectoryReader) reader, cancellable) : reader, executor);
+        super(wrapWithExitableDirectoryReader ? wrapExitableDirectoryReader((OpenSearchMultiReader) reader, cancellable) : reader, executor);
         setSimilarity(similarity);
         setQueryCache(queryCache);
         setQueryCachingPolicy(queryCachingPolicy);
         this.cancellable = cancellable;
         this.searchContext = searchContext;
+    }
+
+    private static OpenSearchMultiReader wrapExitableDirectoryReader(OpenSearchMultiReader openSearchMultiReader, MutableQueryTimeout cancellable) throws IOException {
+        final Map<String, DirectoryReader> subReaderMap = new HashMap<>();
+        for (Map.Entry<String, DirectoryReader> readerEntry: openSearchMultiReader.getSubReadersMap().entrySet()) {
+            DirectoryReader subReader = readerEntry.getValue();
+            assert subReader instanceof OpenSearchDirectoryReader;
+            subReaderMap.put(readerEntry.getKey(), new ExitableDirectoryReader((OpenSearchDirectoryReader) subReader, cancellable));
+        }
+
+        return new OpenSearchMultiReader(openSearchMultiReader.getDirectory(), subReaderMap, openSearchMultiReader.shardId());
     }
 
     public void setProfiler(QueryProfiler profiler) {

@@ -330,7 +330,7 @@ public abstract class RecoverySourceHandler {
      * with the file systems due to interrupt (see {@link org.apache.lucene.store.NIOFSDirectory} javadocs for more detail).
      * This method acquires a safe commit and wraps it to make sure that it will be released using the generic thread pool.
      */
-    protected GatedCloseable<IndexCommit> acquireSafeCommit(IndexShard shard) {
+    protected GatedCloseable<IndexCommit> acquireSafeCommit(IndexShard shard) throws IOException {
         final GatedCloseable<IndexCommit> wrappedSafeCommit = shard.acquireSafeIndexCommit();
         final AtomicBoolean closed = new AtomicBoolean(false);
         return new GatedCloseable<>(wrappedSafeCommit.get(), () -> {

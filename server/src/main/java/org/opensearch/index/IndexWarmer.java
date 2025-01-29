@@ -35,8 +35,10 @@ package org.opensearch.index;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
+import org.apache.lucene.index.DirectoryReader;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.index.fielddata.IndexFieldData;
 import org.opensearch.index.fielddata.IndexFieldDataService;
@@ -75,7 +77,7 @@ public final class IndexWarmer {
         this.listeners = Collections.unmodifiableList(list);
     }
 
-    void warm(OpenSearchDirectoryReader reader, IndexShard shard, IndexSettings settings) {
+    void warm(OpenSearchMultiReader reader, IndexShard shard, IndexSettings settings) {
         if (shard.state() == IndexShardState.CLOSED) {
             return;
         }
@@ -132,7 +134,7 @@ public final class IndexWarmer {
     public interface Listener {
         /** Queue tasks to warm-up the given segments and return handles that allow to wait for termination of the
          *  execution of those tasks. */
-        TerminationHandle warmReader(IndexShard indexShard, OpenSearchDirectoryReader reader);
+        TerminationHandle warmReader(IndexShard indexShard, OpenSearchMultiReader reader);
     }
 
     /**
@@ -151,7 +153,7 @@ public final class IndexWarmer {
         }
 
         @Override
-        public TerminationHandle warmReader(final IndexShard indexShard, final OpenSearchDirectoryReader reader) {
+        public TerminationHandle warmReader(final IndexShard indexShard, final OpenSearchMultiReader multiReader) {
             final MapperService mapperService = indexShard.mapperService();
             final Map<String, MappedFieldType> warmUpGlobalOrdinals = new HashMap<>();
             for (MappedFieldType fieldType : mapperService.fieldTypes()) {
@@ -162,40 +164,43 @@ public final class IndexWarmer {
                 warmUpGlobalOrdinals.put(indexName, fieldType);
             }
             final CountDownLatch latch = new CountDownLatch(warmUpGlobalOrdinals.size());
-            for (final MappedFieldType fieldType : warmUpGlobalOrdinals.values()) {
-                executor.execute(() -> {
-                    try {
-                        final long start = System.nanoTime();
-                        IndexFieldData.Global<?> ifd = indexFieldDataService.getForField(
-                            fieldType,
-                            indexFieldDataService.index().getName(),
-                            () -> {
-                                throw new UnsupportedOperationException("search lookup not available when warming an index");
+            for (DirectoryReader reader: multiReader.getSubReadersMap().values()) {
+                for (final MappedFieldType fieldType : warmUpGlobalOrdinals.values()) {
+                    executor.execute(() -> {
+                        try {
+                            final long start = System.nanoTime();
+                            IndexFieldData.Global<?> ifd = indexFieldDataService.getForField(
+                                fieldType,
+                                indexFieldDataService.index().getName(),
+                                () -> {
+                                    throw new UnsupportedOperationException("search lookup not available when warming an index");
+                                }
+                            );
+                            IndexFieldData<?> global = ifd.loadGlobal(reader);
+                            if (reader.leaves().isEmpty() == false) {
+                                global.load(reader.leaves().get(0));
                             }
-                        );
-                        IndexFieldData<?> global = ifd.loadGlobal(reader);
-                        if (reader.leaves().isEmpty() == false) {
-                            global.load(reader.leaves().get(0));
-                        }
 
-                        if (indexShard.warmerService().logger().isTraceEnabled()) {
+                            if (indexShard.warmerService().logger().isTraceEnabled()) {
+                                indexShard.warmerService()
+                                    .logger()
+                                    .trace(
+                                        "warmed global ordinals for [{}], took [{}]",
+                                        fieldType.name(),
+                                        TimeValue.timeValueNanos(System.nanoTime() - start)
+                                    );
+                            }
+                        } catch (Exception e) {
                             indexShard.warmerService()
                                 .logger()
-                                .trace(
-                                    "warmed global ordinals for [{}], took [{}]",
-                                    fieldType.name(),
-                                    TimeValue.timeValueNanos(System.nanoTime() - start)
-                                );
+                                .warn(() -> new ParameterizedMessage("failed to warm-up global ordinals for [{}]", fieldType.name()), e);
+                        } finally {
+                            latch.countDown();
                         }
-                    } catch (Exception e) {
-                        indexShard.warmerService()
-                            .logger()
-                            .warn(() -> new ParameterizedMessage("failed to warm-up global ordinals for [{}]", fieldType.name()), e);
-                    } finally {
-                        latch.countDown();
-                    }
-                });
+                    });
+                }
             }
+
             return () -> latch.await();
         }
     }

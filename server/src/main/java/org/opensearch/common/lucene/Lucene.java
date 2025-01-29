@@ -47,14 +47,17 @@ import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.IndexFormatTooNewException;
 import org.apache.lucene.index.IndexFormatTooOldException;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.SegmentReader;
+import org.apache.lucene.index.StandardDirectoryReader;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.FieldDoc;
@@ -84,6 +87,9 @@ import org.apache.lucene.util.Version;
 import org.opensearch.ExceptionsHelper;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.SuppressForbidden;
+import org.opensearch.common.lucene.index.CriteriaBasedCompositeDirectory;
+import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.lucene.search.TopDocsAndMaxScore;
 import org.opensearch.common.util.iterable.Iterables;
 import org.opensearch.core.common.Strings;
@@ -91,7 +97,9 @@ import org.opensearch.core.common.io.stream.StreamInput;
 import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.index.analysis.AnalyzerScope;
 import org.opensearch.index.analysis.NamedAnalyzer;
+import org.opensearch.index.engine.CombinedDeletionPolicy;
 import org.opensearch.index.fielddata.IndexFieldData;
+import org.opensearch.index.seqno.SequenceNumbers;
 import org.opensearch.search.sort.SortedWiderNumericSortField;
 
 import java.io.IOException;
@@ -101,8 +109,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Main lucene class.
@@ -132,7 +142,17 @@ public class Lucene {
      * Reads the segments infos, failing if it fails to load
      */
     public static SegmentInfos readSegmentInfos(Directory directory) throws IOException {
-        return SegmentInfos.readLatestCommit(directory);
+        CriteriaBasedCompositeDirectory criteriaBasedCompositeDirectory = CriteriaBasedCompositeDirectory.unwrap(directory);
+        if (criteriaBasedCompositeDirectory == null) {
+            return SegmentInfos.readLatestCommit(directory);
+        } else {
+            final List<SegmentInfos> segmentInfosList = new ArrayList<>();
+            for (Directory childDirectory: criteriaBasedCompositeDirectory.getChildDirectoryList()) {
+                segmentInfosList.add(SegmentInfos.readLatestCommit(childDirectory));
+            }
+
+            return combineSegmentInfos(segmentInfosList, criteriaBasedCompositeDirectory.getCriteriaList(), directory);
+        }
     }
 
     /**
@@ -142,7 +162,17 @@ public class Lucene {
      */
     public static SegmentInfos readSegmentInfos(Directory directory, org.opensearch.Version minimumVersion) throws IOException {
         final int minSupportedLuceneMajor = minimumVersion.minimumIndexCompatibilityVersion().luceneVersion.major;
-        return SegmentInfos.readLatestCommit(directory, minSupportedLuceneMajor);
+        CriteriaBasedCompositeDirectory criteriaBasedCompositeDirectory = CriteriaBasedCompositeDirectory.unwrap(directory);
+        if (criteriaBasedCompositeDirectory == null) {
+            return SegmentInfos.readLatestCommit(directory, minSupportedLuceneMajor);
+        } else {
+            final List<SegmentInfos> segmentInfosList = new ArrayList<>();
+            for (Directory childDirectory: criteriaBasedCompositeDirectory.getChildDirectoryList()) {
+                segmentInfosList.add(SegmentInfos.readLatestCommit(childDirectory, minSupportedLuceneMajor));
+            }
+
+            return combineSegmentInfos(segmentInfosList, criteriaBasedCompositeDirectory.getCriteriaList(), directory);
+        }
     }
 
     /**
@@ -168,14 +198,89 @@ public class Lucene {
         return numDocs;
     }
 
+    public static SegmentInfos combineSegmentInfos(List<SegmentInfos> criteriaBasedSegmentInfos,
+                                                   Set<String> criteriaList, Directory directory) throws IOException {
+        final SegmentInfos sis = new SegmentInfos(Version.LATEST.major);
+        final List<SegmentCommitInfo> infos = new ArrayList<>();
+        int i = 0;
+        for (String criteria : criteriaList) {
+            SegmentInfos currentInfos = criteriaBasedSegmentInfos.get(i++);
+            for (SegmentCommitInfo info : currentInfos) {
+                String newSegName = criteria + "$" + info.info.name;
+
+                //TODO: Should child level directory passed here?
+                infos.add(copySegmentAsIs(info, newSegName, directory));
+            }
+
+            // How to keep user data in sync across multi IndexWriter.
+            sis.setUserData(currentInfos.getUserData(), false);
+        }
+
+        sis.addAll(infos);
+        return sis;
+    }
+
+    /** Copies the segment files as-is into the IndexWriter's directory. */
+    public static SegmentCommitInfo copySegmentAsIs(
+        SegmentCommitInfo info, String segName, Directory directory) throws IOException {
+        // Same SI as before but we change directory and name
+        SegmentInfo newInfo =
+            new SegmentInfo(
+                directory,
+                info.info.getVersion(),
+                info.info.getMinVersion(),
+                segName,
+                info.info.maxDoc(),
+                info.info.getUseCompoundFile(),
+                info.info.getHasBlocks(),
+                info.info.getCodec(),
+                info.info.getDiagnostics(),
+                info.info.getId(),
+                info.info.getAttributes(),
+                info.info.getIndexSort());
+        SegmentCommitInfo newInfoPerCommit =
+            new SegmentCommitInfo(
+                newInfo,
+                info.getDelCount(),
+                info.getSoftDelCount(),
+                info.getDelGen(),
+                info.getFieldInfosGen(),
+                info.getDocValuesGen(),
+                info.getId());
+
+        newInfo.setFiles(info.info.files());
+        newInfoPerCommit.setFieldInfosFiles(info.getFieldInfosFiles());
+        newInfoPerCommit.setDocValuesUpdatesFiles(info.getDocValuesUpdatesFiles());
+        return newInfoPerCommit;
+    }
+
     /**
      * Reads the segments infos from the given commit, failing if it fails to load
+     *
+     * TODO: Read from a file
      */
     public static SegmentInfos readSegmentInfos(IndexCommit commit) throws IOException {
         // Using commit.getSegmentsFileName() does NOT work here, have to
         // manually create the segment filename
-        String filename = IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS, "", commit.getGeneration());
-        return SegmentInfos.readCommit(commit.getDirectory(), filename);
+        if (commit instanceof CombinedCommitPoint) {
+            assert commit.getDirectory() instanceof CriteriaBasedCompositeDirectory;
+            CombinedCommitPoint  combinedCommitPoint = (CombinedCommitPoint) commit;
+            List<SegmentInfos> infosList = new ArrayList<>();
+            Map<String, Long> generationMap = combinedCommitPoint.getChildIndexWriterGenerations();
+            CriteriaBasedCompositeDirectory compositeDirectory = (CriteriaBasedCompositeDirectory) commit.getDirectory();
+            for (Map.Entry<String, Long> entry : generationMap.entrySet()) {
+                infosList.add(readSegmentInfosUtil(compositeDirectory.getDirectory(entry.getKey()), entry.getValue()));
+            }
+
+            return combineSegmentInfos(infosList, generationMap.keySet(), commit.getDirectory());
+        } else {
+            return readSegmentInfosUtil(commit.getDirectory(), commit.getGeneration());
+        }
+    }
+
+    private static SegmentInfos readSegmentInfosUtil(Directory directory, long generation) throws IOException {
+        String filename = IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS, "", generation);
+        return SegmentInfos.readCommit(directory, filename);
     }
 
     /**
@@ -239,6 +344,10 @@ public class Lucene {
      */
     public static IndexCommit getIndexCommit(SegmentInfos si, Directory directory) throws IOException {
         return new CommitPoint(si, directory);
+    }
+
+    public static IndexCommit getCombinedIndexCommit(SegmentInfos si, Directory directory, Map<String, Long> generationList) throws IOException {
+        return new CombinedCommitPoint(si, directory, generationList);
     }
 
     /**
@@ -729,7 +838,19 @@ public class Lucene {
         }
     }
 
-    private static final class CommitPoint extends IndexCommit {
+    private static final class CombinedCommitPoint extends CommitPoint {
+        private Map<String, Long> childIndexWriterGenerations;
+        private CombinedCommitPoint(SegmentInfos infos, Directory dir, Map<String, Long> childIndexWriterGenerations) throws IOException {
+            super(infos, dir);
+            this.childIndexWriterGenerations = childIndexWriterGenerations;
+        }
+
+        public Map<String, Long> getChildIndexWriterGenerations() {
+            return childIndexWriterGenerations;
+        }
+    }
+
+    private static class CommitPoint extends IndexCommit {
         private String segmentsFileName;
         private final Collection<String> files;
         private final Directory dir;
@@ -885,6 +1006,14 @@ public class Lucene {
             return false;
         }
         return Arrays.asList(fields1).equals(Arrays.asList(fields2).subList(0, fields1.length));
+    }
+
+    public static OpenSearchMultiReader wrapAllDocsLive(OpenSearchMultiReader in) throws IOException {
+        Map<String, DirectoryReader> childReaderMap = new HashMap<>();
+        for (Map.Entry<String, DirectoryReader> childDirectoryReader: in.getSubReadersMap().entrySet()) {
+            childReaderMap.put(childDirectoryReader.getKey(), wrapAllDocsLive(childDirectoryReader.getValue()));
+        }
+        return new OpenSearchMultiReader(in.getDirectory(), childReaderMap, in.shardId());
     }
 
     /**

@@ -49,6 +49,7 @@ import org.opensearch.common.TriFunction;
 import org.opensearch.common.annotation.ExperimentalApi;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.common.logging.DeprecationLogger;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Setting.Property;
 import org.opensearch.common.settings.Settings;
@@ -232,7 +233,7 @@ public final class IndexModule {
     private final AnalysisRegistry analysisRegistry;
     private final EngineFactory engineFactory;
     private final EngineConfigFactory engineConfigFactory;
-    private SetOnce<Function<IndexService, CheckedFunction<DirectoryReader, DirectoryReader, IOException>>> indexReaderWrapper =
+    private SetOnce<Function<IndexService, CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException>>> indexReaderWrapper =
         new SetOnce<>();
     private final Set<IndexEventListener> indexEventListeners = new HashSet<>();
     private final Map<String, TriFunction<Settings, Version, ScriptService, Similarity>> similarities = new HashMap<>();
@@ -457,7 +458,7 @@ public final class IndexModule {
      * </p>
      */
     public void setReaderWrapper(
-        Function<IndexService, CheckedFunction<DirectoryReader, DirectoryReader, IOException>> indexReaderWrapperFactory
+        Function<IndexService, CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException>> indexReaderWrapperFactory
     ) {
         ensureNotFrozen();
         this.indexReaderWrapper.set(indexReaderWrapperFactory);
@@ -681,7 +682,7 @@ public final class IndexModule {
         Consumer<IndexShard> replicator
     ) throws IOException {
         final IndexEventListener eventListener = freeze();
-        Function<IndexService, CheckedFunction<DirectoryReader, DirectoryReader, IOException>> readerWrapperFactory = indexReaderWrapper
+        Function<IndexService, CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException>> readerWrapperFactory = indexReaderWrapper
             .get() == null ? (shard) -> null : indexReaderWrapper.get();
         eventListener.beforeIndexCreated(indexSettings.getIndex(), indexSettings.getSettings());
         final IndexStorePlugin.DirectoryFactory directoryFactory = getDirectoryFactory(indexSettings, directoryFactories);

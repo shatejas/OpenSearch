@@ -49,6 +49,7 @@ import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.CheckedFunction;
 import org.opensearch.common.Nullable;
 import org.opensearch.common.annotation.PublicApi;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Setting.Property;
 import org.opensearch.common.settings.Settings;
@@ -138,6 +139,7 @@ import static java.util.Collections.unmodifiableMap;
 import static org.opensearch.common.collect.MapBuilder.newMapBuilder;
 import static org.opensearch.common.util.FeatureFlags.READER_WRITER_SPLIT_EXPERIMENTAL_SETTING;
 import static org.opensearch.index.remote.RemoteMigrationIndexMetadataUpdater.indexHasRemoteStoreSettings;
+import static org.opensearch.index.store.FsDirectoryFactory.INDEX_LOCK_FACTOR_SETTING;
 
 /**
  * The main OpenSearch index service
@@ -155,7 +157,7 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
     private final IndexStorePlugin.DirectoryFactory directoryFactory;
     private final IndexStorePlugin.DirectoryFactory remoteDirectoryFactory;
     private final IndexStorePlugin.RecoveryStateFactory recoveryStateFactory;
-    private final CheckedFunction<DirectoryReader, DirectoryReader, IOException> readerWrapper;
+    private final CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> readerWrapper;
     private final IndexCache indexCache;
     private final MapperService mapperService;
     private final NamedXContentRegistry xContentRegistry;
@@ -218,7 +220,7 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
         IndexStorePlugin.DirectoryFactory directoryFactory,
         IndexStorePlugin.DirectoryFactory remoteDirectoryFactory,
         IndexEventListener eventListener,
-        Function<IndexService, CheckedFunction<DirectoryReader, DirectoryReader, IOException>> wrapperFactory,
+        Function<IndexService, CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException>> wrapperFactory,
         MapperRegistry mapperRegistry,
         IndicesFieldDataCache indicesFieldDataCache,
         List<SearchOperationListener> searchOperationListeners,
@@ -345,7 +347,7 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
         IndexStorePlugin.DirectoryFactory directoryFactory,
         IndexStorePlugin.DirectoryFactory remoteDirectoryFactory,
         IndexEventListener eventListener,
-        Function<IndexService, CheckedFunction<DirectoryReader, DirectoryReader, IOException>> wrapperFactory,
+        Function<IndexService, CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException>> wrapperFactory,
         MapperRegistry mapperRegistry,
         IndicesFieldDataCache indicesFieldDataCache,
         List<SearchOperationListener> searchOperationListeners,
@@ -633,7 +635,8 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
                         // Do nothing for shard lock on remote store
                     }
                 };
-                remoteStore = new Store(shardId, this.indexSettings, remoteDirectory, remoteStoreLock, Store.OnClose.EMPTY, path);
+
+                remoteStore = new Store(shardId, this.indexSettings, remoteDirectory, remoteStoreLock, Store.OnClose.EMPTY, path, null);
             } else {
                 // Disallow shards with remote store based settings to be created on non-remote store enabled nodes
                 // Even though we have `RemoteStoreMigrationAllocationDecider` in place to prevent something like this from happening at the
@@ -656,13 +659,20 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
             } else {
                 directory = directoryFactory.newDirectory(this.indexSettings, path);
             }
+
+            Map<String, Directory> criteriaDirectoryMapping = new HashMap<>();
+            criteriaDirectoryMapping.put("200", directoryFactory.newFSDirectory(path.resolveIndex().resolve("200"),
+                this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING), this.indexSettings));
+            criteriaDirectoryMapping.put("400", directoryFactory.newFSDirectory(path.resolveIndex().resolve("400"),
+                this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING), this.indexSettings));
             store = new Store(
                 shardId,
                 this.indexSettings,
                 directory,
                 lock,
                 new StoreCloseListener(shardId, () -> eventListener.onStoreClosed(shardId)),
-                path
+                path,
+                criteriaDirectoryMapping
             );
             eventListener.onStoreCreated(shardId);
             indexShard = new IndexShard(
@@ -1194,7 +1204,7 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
         return engineFactory;
     }
 
-    final CheckedFunction<DirectoryReader, DirectoryReader, IOException> getReaderWrapper() {
+    final CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> getReaderWrapper() {
         return readerWrapper;
     } // pkg private for testing
 

@@ -171,7 +171,7 @@ public class SegmentReplicationBaseIT extends OpenSearchIntegTestCase {
 
     private int getDocCountFromShard(IndexShard shard) {
         try (final Engine.Searcher searcher = shard.acquireSearcher("test")) {
-            return searcher.getDirectoryReader().numDocs();
+            return searcher.getMultiDirectoryReader().numDocs();
         }
     }
 

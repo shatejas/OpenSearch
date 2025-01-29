@@ -119,7 +119,7 @@ final class LuceneChangesSnapshot implements Translog.Snapshot {
         this.toSeqNo = toSeqNo;
         this.lastSeenSeqNo = fromSeqNo - 1;
         this.requiredFullRange = requiredFullRange;
-        this.indexSearcher = new IndexSearcher(Lucene.wrapAllDocsLive(engineSearcher.getDirectoryReader()));
+        this.indexSearcher = new IndexSearcher(Lucene.wrapAllDocsLive(engineSearcher.getMultiDirectoryReader()));
         this.indexSearcher.setQueryCache(null);
         this.parallelArray = new ParallelArray(this.searchBatchSize);
         final TopDocs topDocs = searchOperations(null, accurateCount);
@@ -257,7 +257,7 @@ final class LuceneChangesSnapshot implements Translog.Snapshot {
         if (fromSeqNo > toSeqNo || fromSeqNo < 0 || toSeqNo < 0) {
             throw new IllegalArgumentException("Invalid sequence range; fromSeqNo [" + fromSeqNo + "] toSeqNo [" + toSeqNo + "]");
         }
-        IndexSearcher indexSearcher = new IndexSearcher(Lucene.wrapAllDocsLive(searcher.getDirectoryReader()));
+        IndexSearcher indexSearcher = new IndexSearcher(Lucene.wrapAllDocsLive(searcher.getMultiDirectoryReader()));
         return indexSearcher.count(operationsRangeQuery(fromSeqNo, toSeqNo));
     }
 

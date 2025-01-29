@@ -19,6 +19,7 @@ import org.opensearch.common.UUIDs;
 import org.opensearch.common.concurrent.GatedCloseable;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.seqno.LocalCheckpointTracker;
@@ -260,11 +261,11 @@ public class NRTReplicationEngineTests extends EngineTestCase {
             assertEquals(2, nrtEngine.getLastCommittedSegmentInfos().getGeneration());
             assertEquals(2, nrtEngine.getLatestSegmentInfos().getGeneration());
 
-            ReferenceManager<OpenSearchDirectoryReader> referenceManager = nrtEngine.getReferenceManager(Engine.SearcherScope.EXTERNAL);
-            OpenSearchDirectoryReader readerBeforeRefresh = referenceManager.acquire();
+            ReferenceManager<OpenSearchMultiReader> referenceManager = nrtEngine.getReferenceManager(Engine.SearcherScope.EXTERNAL);
+            OpenSearchMultiReader readerBeforeRefresh = referenceManager.acquire();
 
             nrtEngine.refresh("test refresh");
-            OpenSearchDirectoryReader readerAfterRefresh = referenceManager.acquire();
+            OpenSearchMultiReader readerAfterRefresh = referenceManager.acquire();
 
             // Verify both readers before and after refresh are same and no change in segments
             assertSame(readerBeforeRefresh, readerAfterRefresh);

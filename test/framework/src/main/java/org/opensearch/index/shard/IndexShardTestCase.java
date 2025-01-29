@@ -68,6 +68,7 @@ import org.opensearch.common.blobstore.fs.FsBlobStore;
 import org.opensearch.common.concurrent.GatedCloseable;
 import org.opensearch.common.io.PathUtils;
 import org.opensearch.common.lease.Releasable;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.lucene.uid.Versions;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.Settings;
@@ -166,6 +167,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -276,11 +278,17 @@ public abstract class IndexShardTestCase extends OpenSearchTestCase {
     }
 
     protected Store createStore(IndexSettings indexSettings, ShardPath shardPath) throws IOException {
-        return createStore(shardPath.getShardId(), indexSettings, newFSDirectory(shardPath.resolveIndex()), shardPath);
+        Map<String, Directory> criteriaDirectoryMapping = new HashMap<>();
+        criteriaDirectoryMapping.put("200", newFSDirectory(shardPath.resolveIndex().resolve("200")));
+        criteriaDirectoryMapping.put("400", newFSDirectory(shardPath.resolveIndex().resolve("400")));
+        return createStore(shardPath.getShardId(), indexSettings, newFSDirectory(shardPath.resolveIndex()), shardPath,
+            criteriaDirectoryMapping);
     }
 
-    protected Store createStore(ShardId shardId, IndexSettings indexSettings, Directory directory, ShardPath shardPath) throws IOException {
-        return new Store(shardId, indexSettings, directory, new DummyShardLock(shardId), Store.OnClose.EMPTY, shardPath);
+    protected Store createStore(ShardId shardId, IndexSettings indexSettings, Directory directory, ShardPath shardPath,
+                                Map<String, Directory> criteriaDirectoryMapping) throws IOException {
+        return new Store(shardId, indexSettings, directory, new DummyShardLock(shardId), Store.OnClose.EMPTY, shardPath,
+            criteriaDirectoryMapping);
     }
 
     protected Releasable acquirePrimaryOperationPermitBlockingly(IndexShard indexShard) throws ExecutionException, InterruptedException {
@@ -401,7 +409,7 @@ public abstract class IndexShardTestCase extends OpenSearchTestCase {
         boolean primary,
         String nodeId,
         IndexMetadata indexMetadata,
-        @Nullable CheckedFunction<DirectoryReader, DirectoryReader, IOException> readerWrapper
+        @Nullable CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> readerWrapper
     ) throws IOException {
         return newShard(shardId, primary, nodeId, indexMetadata, readerWrapper, () -> {});
     }
@@ -419,7 +427,7 @@ public abstract class IndexShardTestCase extends OpenSearchTestCase {
         boolean primary,
         String nodeId,
         IndexMetadata indexMetadata,
-        @Nullable CheckedFunction<DirectoryReader, DirectoryReader, IOException> readerWrapper,
+        @Nullable CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> readerWrapper,
         Runnable globalCheckpointSyncer
     ) throws IOException {
         ShardRouting shardRouting = TestShardRouting.newShardRouting(
@@ -451,7 +459,7 @@ public abstract class IndexShardTestCase extends OpenSearchTestCase {
     protected IndexShard newShard(
         ShardRouting routing,
         IndexMetadata indexMetadata,
-        @Nullable CheckedFunction<DirectoryReader, DirectoryReader, IOException> indexReaderWrapper,
+        @Nullable CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> indexReaderWrapper,
         EngineFactory engineFactory,
         IndexingOperationListener... listeners
     ) throws IOException {
@@ -470,7 +478,7 @@ public abstract class IndexShardTestCase extends OpenSearchTestCase {
     protected IndexShard newShard(
         ShardRouting routing,
         IndexMetadata indexMetadata,
-        @Nullable CheckedFunction<DirectoryReader, DirectoryReader, IOException> indexReaderWrapper,
+        @Nullable CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> indexReaderWrapper,
         @Nullable EngineFactory engineFactory,
         Runnable globalCheckpointSyncer,
         RetentionLeaseSyncer retentionLeaseSyncer,
@@ -514,7 +522,7 @@ public abstract class IndexShardTestCase extends OpenSearchTestCase {
         ShardPath shardPath,
         IndexMetadata indexMetadata,
         @Nullable CheckedFunction<IndexSettings, Store, IOException> storeProvider,
-        @Nullable CheckedFunction<DirectoryReader, DirectoryReader, IOException> indexReaderWrapper,
+        @Nullable CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> indexReaderWrapper,
         @Nullable EngineFactory engineFactory,
         @Nullable EngineConfigFactory engineConfigFactory,
         Runnable globalCheckpointSyncer,
@@ -609,7 +617,7 @@ public abstract class IndexShardTestCase extends OpenSearchTestCase {
         ShardPath shardPath,
         IndexMetadata indexMetadata,
         @Nullable CheckedFunction<IndexSettings, Store, IOException> storeProvider,
-        @Nullable CheckedFunction<DirectoryReader, DirectoryReader, IOException> indexReaderWrapper,
+        @Nullable CheckedFunction<OpenSearchMultiReader, OpenSearchMultiReader, IOException> indexReaderWrapper,
         @Nullable EngineFactory engineFactory,
         @Nullable EngineConfigFactory engineConfigFactory,
         Runnable globalCheckpointSyncer,
@@ -793,7 +801,7 @@ public abstract class IndexShardTestCase extends OpenSearchTestCase {
         Settings nodeSettings = Settings.builder().put("node.name", shardRouting.currentNodeId()).build();
         ShardId shardId = shardRouting.shardId();
         RemoteSegmentStoreDirectory remoteSegmentStoreDirectory = createRemoteSegmentStoreDirectory(shardId, path);
-        return createStore(shardId, new IndexSettings(metadata, nodeSettings), remoteSegmentStoreDirectory, shardPath);
+        return createStore(shardId, new IndexSettings(metadata, nodeSettings), remoteSegmentStoreDirectory, shardPath, null);
     }
 
     protected RemoteSegmentStoreDirectory createRemoteSegmentStoreDirectory(ShardId shardId, Path path) throws IOException {

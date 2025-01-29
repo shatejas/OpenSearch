@@ -67,7 +67,7 @@ import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.lucene.Lucene;
-import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.lucene.search.Queries;
 import org.opensearch.common.lucene.uid.Versions;
 import org.opensearch.common.lucene.uid.VersionsAndSeqNoResolver;
@@ -323,11 +323,21 @@ public abstract class Engine implements LifecycleAware, Closeable {
         }
         org.apache.lucene.document.Document document = searcher.storedFields().document(docs[0].doc);
         Term uidTerm = new Term(IdFieldMapper.NAME, document.getField(IdFieldMapper.NAME).binaryValue());
-        VersionsAndSeqNoResolver.DocIdAndVersion docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(
-            searcher.getIndexReader(),
-            uidTerm,
-            true
-        );
+        VersionsAndSeqNoResolver.DocIdAndVersion docIdAndVersion;
+        if (searcher.getIndexReader() instanceof OpenSearchMultiReader) {
+            docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(
+                (OpenSearchMultiReader)searcher.getIndexReader(),
+                uidTerm,
+                true
+            );
+        } else {
+            docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(
+                searcher.getIndexReader(),
+                uidTerm,
+                true
+            );
+        }
+
         assert docIdAndVersion != null;
         return docIdAndVersion.seqNo;
     }
@@ -695,7 +705,13 @@ public abstract class Engine implements LifecycleAware, Closeable {
         final Engine.Searcher searcher = searcherFactory.apply("get", scope);
         final DocIdAndVersion docIdAndVersion;
         try {
-            docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(searcher.getIndexReader(), get.uid(), true);
+            IndexReader indexReader = searcher.getIndexReader();
+            if (indexReader instanceof OpenSearchMultiReader) {
+                docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion((OpenSearchMultiReader) indexReader, get.uid(), true);
+            } else {
+                docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(indexReader, get.uid(), true);
+            }
+
         } catch (Exception e) {
             Releasables.closeWhileHandlingException(searcher);
             // TODO: A better exception goes here
@@ -756,8 +772,8 @@ public abstract class Engine implements LifecycleAware, Closeable {
         }
         Releasable releasable = store::decRef;
         try {
-            ReferenceManager<OpenSearchDirectoryReader> referenceManager = getReferenceManager(scope);
-            OpenSearchDirectoryReader acquire = referenceManager.acquire();
+            ReferenceManager<OpenSearchMultiReader> referenceManager = getReferenceManager(scope);
+            OpenSearchMultiReader acquire = referenceManager.acquire();
             SearcherSupplier reader = new SearcherSupplier(wrapper) {
                 @Override
                 public Searcher acquireSearcherInternal(String source) {
@@ -816,7 +832,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
             releasable = null;
             return new Searcher(
                 source,
-                searcher.getDirectoryReader(),
+                searcher.getMultiDirectoryReader(),
                 searcher.getSimilarity(),
                 searcher.getQueryCache(),
                 searcher.getQueryCachingPolicy(),
@@ -827,7 +843,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
         }
     }
 
-    protected abstract ReferenceManager<OpenSearchDirectoryReader> getReferenceManager(SearcherScope scope);
+    protected abstract ReferenceManager<OpenSearchMultiReader> getReferenceManager(SearcherScope scope);
 
     boolean assertSearcherIsWarmedUp(String source, SearcherScope scope) {
         return true;
@@ -1151,7 +1167,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
              */
             try {
                 try (Searcher searcher = acquireSearcher("refresh_needed", SearcherScope.EXTERNAL)) {
-                    return searcher.getDirectoryReader().isCurrent() == false;
+                    return searcher.getMultiDirectoryReader().isCurrent() == false;
                 }
             } catch (IOException e) {
                 logger.error("failed to access searcher manager", e);
@@ -1234,7 +1250,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
     /**
      * Snapshots the most recent safe index commit from the engine.
      */
-    public abstract GatedCloseable<IndexCommit> acquireSafeIndexCommit() throws EngineException;
+    public abstract GatedCloseable<IndexCommit> acquireSafeIndexCommit() throws EngineException, IOException;
 
     /**
      * @return a summary of the contents of the current safe commit
@@ -1459,9 +1475,9 @@ public abstract class Engine implements LifecycleAware, Closeable {
             return source;
         }
 
-        public DirectoryReader getDirectoryReader() {
-            if (getIndexReader() instanceof DirectoryReader) {
-                return (DirectoryReader) getIndexReader();
+        public OpenSearchMultiReader getMultiDirectoryReader() {
+            if (getIndexReader() instanceof OpenSearchMultiReader) {
+                return (OpenSearchMultiReader) getIndexReader();
             }
             throw new IllegalStateException("Can't use " + getIndexReader().getClass() + " as a directory reader");
         }
@@ -2056,7 +2072,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
         /**
          * Called once a new top-level reader is opened.
          */
-        void warm(OpenSearchDirectoryReader reader);
+        void warm(OpenSearchMultiReader reader);
     }
 
     /**

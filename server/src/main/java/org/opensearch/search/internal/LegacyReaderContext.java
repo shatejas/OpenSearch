@@ -75,7 +75,7 @@ public class LegacyReaderContext extends ReaderContext {
             // wrap the searcher so that closing is a noop, the actual closing happens when this context is closed
             this.searcher = new Engine.Searcher(
                 delegate.source(),
-                delegate.getDirectoryReader(),
+                delegate.getMultiDirectoryReader(),
                 delegate.getSimilarity(),
                 delegate.getQueryCache(),
                 delegate.getQueryCachingPolicy(),

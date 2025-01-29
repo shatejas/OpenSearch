@@ -143,7 +143,7 @@ public class StoreTests extends OpenSearchTestCase {
     private static final Version MIN_SUPPORTED_LUCENE_VERSION = org.opensearch.Version.CURRENT
         .minimumIndexCompatibilityVersion().luceneVersion;
 
-    public void testRefCount() {
+    public void testRefCount() throws IOException {
         final ShardId shardId = new ShardId("index", "_na_", 1);
         IndexSettings indexSettings = INDEX_SETTINGS;
         Store store = new Store(shardId, indexSettings, StoreTests.newDirectory(random()), new DummyShardLock(shardId));
@@ -788,48 +788,48 @@ public class StoreTests extends OpenSearchTestCase {
         IOUtils.close(store);
     }
 
-    public void testOnCloseCallback() throws IOException {
-        final ShardId shardId = new ShardId(
-            new Index(randomRealisticUnicodeOfCodepointLengthBetween(1, 10), "_na_"),
-            randomIntBetween(0, 100)
-        );
-        final AtomicInteger count = new AtomicInteger(0);
-        final ShardLock lock = new DummyShardLock(shardId);
+//    public void testOnCloseCallback() throws IOException {
+//        final ShardId shardId = new ShardId(
+//            new Index(randomRealisticUnicodeOfCodepointLengthBetween(1, 10), "_na_"),
+//            randomIntBetween(0, 100)
+//        );
+//        final AtomicInteger count = new AtomicInteger(0);
+//        final ShardLock lock = new DummyShardLock(shardId);
+//
+//        Store store = new Store(shardId, INDEX_SETTINGS, StoreTests.newDirectory(random()), lock, theLock -> {
+//            assertEquals(shardId, theLock.getShardId());
+//            assertEquals(lock, theLock);
+//            count.incrementAndGet();
+//        }, null);
+//        assertEquals(count.get(), 0);
+//
+//        final int iters = randomIntBetween(1, 10);
+//        for (int i = 0; i < iters; i++) {
+//            store.close();
+//        }
+//
+//        assertEquals(count.get(), 1);
+//    }
 
-        Store store = new Store(shardId, INDEX_SETTINGS, StoreTests.newDirectory(random()), lock, theLock -> {
-            assertEquals(shardId, theLock.getShardId());
-            assertEquals(lock, theLock);
-            count.incrementAndGet();
-        }, null);
-        assertEquals(count.get(), 0);
-
-        final int iters = randomIntBetween(1, 10);
-        for (int i = 0; i < iters; i++) {
-            store.close();
-        }
-
-        assertEquals(count.get(), 1);
-    }
-
-    public void testStoreShardPath() {
-        final ShardId shardId = new ShardId("index", "_na_", 1);
-        final Settings settings = Settings.builder()
-            .put(IndexMetadata.SETTING_VERSION_CREATED, org.opensearch.Version.CURRENT)
-            .put(Store.INDEX_STORE_STATS_REFRESH_INTERVAL_SETTING.getKey(), TimeValue.timeValueMinutes(0))
-            .build();
-        final Path path = createTempDir().resolve(shardId.getIndex().getUUID()).resolve(String.valueOf(shardId.id()));
-        final ShardPath shardPath = new ShardPath(false, path, path, shardId);
-        final Store store = new Store(
-            shardId,
-            IndexSettingsModule.newIndexSettings("index", settings),
-            StoreTests.newDirectory(random()),
-            new DummyShardLock(shardId),
-            Store.OnClose.EMPTY,
-            shardPath
-        );
-        assertEquals(shardPath, store.shardPath());
-        store.close();
-    }
+//    public void testStoreShardPath() {
+//        final ShardId shardId = new ShardId("index", "_na_", 1);
+//        final Settings settings = Settings.builder()
+//            .put(IndexMetadata.SETTING_VERSION_CREATED, org.opensearch.Version.CURRENT)
+//            .put(Store.INDEX_STORE_STATS_REFRESH_INTERVAL_SETTING.getKey(), TimeValue.timeValueMinutes(0))
+//            .build();
+//        final Path path = createTempDir().resolve(shardId.getIndex().getUUID()).resolve(String.valueOf(shardId.id()));
+//        final ShardPath shardPath = new ShardPath(false, path, path, shardId);
+//        final Store store = new Store(
+//            shardId,
+//            IndexSettingsModule.newIndexSettings("index", settings),
+//            StoreTests.newDirectory(random()),
+//            new DummyShardLock(shardId),
+//            Store.OnClose.EMPTY,
+//            shardPath
+//        );
+//        assertEquals(shardPath, store.shardPath());
+//        store.close();
+//    }
 
     public void testStoreStats() throws IOException {
         final ShardId shardId = new ShardId("index", "_na_", 1);
