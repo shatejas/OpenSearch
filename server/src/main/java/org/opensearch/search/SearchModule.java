@@ -338,7 +338,7 @@ public class SearchModule {
     private final SearchPlugin.ExecutorServiceProvider indexSearcherExecutorProvider;
 
     private final Collection<ConcurrentSearchRequestDecider.Factory> concurrentSearchDeciderFactories;
-    private final Map<Class<? extends Query>, Set<String>> profilerTimingsPerQuery = new HashMap<>();
+    private final List<SearchPlugin.QueryProfilerSpec> queryProfilerSpecs = new ArrayList<>();
 
     /**
      * Constructs a new SearchModule object
@@ -374,7 +374,7 @@ public class SearchModule {
 
     private void registerProfilerTimingTypes(List<SearchPlugin> plugins) {
         for (SearchPlugin plugin : plugins) {
-            profilerTimingsPerQuery.putAll(plugin.registerProfilerTimingTypes());
+            queryProfilerSpecs.addAll(plugin.getQueryProfilers());
         }
     }
 
@@ -394,8 +394,8 @@ public class SearchModule {
         return concurrentSearchDeciderFactories;
     }
 
-    public Map<Class<? extends Query>, Set<String>> getQueryProfilerTimingTypes() {
-        return profilerTimingsPerQuery;
+    public List<SearchPlugin.QueryProfilerSpec> getQueryProfilerSpecs() {
+        return queryProfilerSpecs;
     }
 
     public List<NamedWriteableRegistry.Entry> getNamedWriteables() {

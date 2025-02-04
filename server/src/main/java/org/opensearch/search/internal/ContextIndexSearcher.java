@@ -67,10 +67,12 @@ import org.apache.lucene.util.SparseFixedBitSet;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lucene.search.TopDocsAndMaxScore;
+import org.opensearch.index.similarity.ScriptedSimilarity;
 import org.opensearch.search.DocValueFormat;
 import org.opensearch.search.SearchService;
 import org.opensearch.search.approximate.ApproximateScoreQuery;
 import org.opensearch.search.dfs.AggregatedDfs;
+import org.opensearch.search.profile.AbstractProfiler;
 import org.opensearch.search.profile.ContextualProfileBreakdown;
 import org.opensearch.search.profile.Timer;
 import org.opensearch.search.profile.query.ProfileWeight;
@@ -84,11 +86,14 @@ import org.opensearch.search.sort.MinAndMax;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 
 /**
  * Context-aware extension of {@link IndexSearcher}.
@@ -110,6 +115,8 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
     private QueryProfiler profiler;
     private MutableQueryTimeout cancellable;
     private SearchContext searchContext;
+    private Map<Class<? extends Query>, Supplier<QueryProfiler>> queryProfilerByClass;
+    private List<QueryProfiler> queryProfilers = new ArrayList<>();
 
     public ContextIndexSearcher(
         IndexReader reader,
@@ -156,6 +163,25 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
 
     public QueryProfiler getProfiler() {
         return profiler;
+    }
+
+    // This should be used by the plugins
+    public QueryProfiler getProfiler(Query query) {
+        Supplier<QueryProfiler> profilerSupplier = queryProfilerByClass.get(query.getClass());
+        if (profilerSupplier == null) {
+            return profiler;
+        }
+        QueryProfiler profiler = profilerSupplier.get();
+        queryProfilers.add(profiler);
+        return profiler;
+    }
+
+    public List<QueryProfiler> getQueryProfilers() {
+        return queryProfilers;
+    }
+
+    public void setQueryProfilerByClass(Map<Class<? extends Query>, Supplier<QueryProfiler>> queryProfilerByClass) {
+        this.queryProfilerByClass = queryProfilerByClass;
     }
 
     /**

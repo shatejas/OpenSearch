@@ -68,6 +68,8 @@ import org.opensearch.search.aggregations.support.ValuesSourceRegistry;
 import org.opensearch.search.deciders.ConcurrentSearchRequestDecider;
 import org.opensearch.search.fetch.FetchSubPhase;
 import org.opensearch.search.fetch.subphase.highlight.Highlighter;
+import org.opensearch.search.profile.AbstractProfiler;
+import org.opensearch.search.profile.query.QueryProfiler;
 import org.opensearch.search.query.QueryPhaseSearcher;
 import org.opensearch.search.rescore.Rescorer;
 import org.opensearch.search.rescore.RescorerBuilder;
@@ -87,6 +89,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
@@ -231,9 +234,10 @@ public interface SearchPlugin {
     /**
      * Register any additional profiler timing types that is needed across all your queries
      */
-    default Map<Class<? extends Query>, Set<String>> registerProfilerTimingTypes() {
-        return emptyMap();
+    default List<QueryProfilerSpec> getQueryProfilers() {
+        return emptyList();
     }
+
 
     /**
      * Executor service provider
@@ -378,6 +382,31 @@ public interface SearchPlugin {
          */
         public Writeable.Reader<? extends Suggest.Suggestion> getSuggestionReader() {
             return this.suggestionReader;
+        }
+    }
+
+    class QueryProfilerSpec {
+        private Class<Query> profilerClass;
+        private Supplier<QueryProfiler> queryProfiler;
+        private Supplier<QueryProfiler> concurrentQueryProfiler;
+
+        public QueryProfilerSpec(Class<Query> profilerClass, Supplier<QueryProfiler> queryProfiler,
+                                 Supplier<QueryProfiler> concurrentQueryProfiler) {
+            this.profilerClass = profilerClass;
+            this.queryProfiler = queryProfiler;
+            this.concurrentQueryProfiler = concurrentQueryProfiler;
+        }
+
+        public Class<? extends Query> getProfilerClass() {
+            return profilerClass;
+        }
+
+        public Supplier<QueryProfiler> getQueryProfiler() {
+            return queryProfiler;
+        }
+
+        public Supplier<QueryProfiler> getConcurrentQueryProfiler() {
+            return concurrentQueryProfiler;
         }
     }
 

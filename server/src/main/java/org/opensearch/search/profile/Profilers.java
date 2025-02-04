@@ -34,6 +34,7 @@ package org.opensearch.search.profile;
 
 import org.apache.lucene.search.Query;
 import org.opensearch.common.annotation.PublicApi;
+import org.opensearch.plugins.SearchPlugin;
 import org.opensearch.search.internal.ContextIndexSearcher;
 import org.opensearch.search.profile.aggregation.AggregationProfiler;
 import org.opensearch.search.profile.aggregation.ConcurrentAggregationProfiler;
@@ -44,9 +45,12 @@ import org.opensearch.search.profile.query.QueryProfiler;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Wrapper around all the profilers that makes management easier.
@@ -60,18 +64,27 @@ public final class Profilers {
     private final List<QueryProfiler> queryProfilers;
     private final AggregationProfiler aggProfiler;
     private final boolean isConcurrentSegmentSearchEnabled;
+    private final Map<Class<? extends Query>, Supplier<QueryProfiler>> queryProfilerByClass;
 
     /** Sole constructor. This {@link Profilers} instance will initially wrap one {@link QueryProfiler}. */
     public Profilers(
         ContextIndexSearcher searcher,
         boolean isConcurrentSegmentSearchEnabled,
-        Map<Class<? extends Query>, Set<String>> profileTimingsPerQuery
+        List<SearchPlugin.QueryProfilerSpec> queryProfilerSpecs
     ) {
         this.searcher = searcher;
         this.isConcurrentSegmentSearchEnabled = isConcurrentSegmentSearchEnabled;
         this.queryProfilers = new ArrayList<>();
         this.aggProfiler = isConcurrentSegmentSearchEnabled ? new ConcurrentAggregationProfiler() : new AggregationProfiler();
-        addQueryProfiler(profileTimingsPerQuery);
+        if (isConcurrentSegmentSearchEnabled) {
+            queryProfilerByClass = queryProfilerSpecs.stream()
+                .collect(Collectors.toMap(spec -> spec.getProfilerClass(), spec -> spec.getConcurrentQueryProfiler()));
+        } else {
+            queryProfilerByClass = queryProfilerSpecs.stream()
+                .collect(Collectors.toMap(spec -> spec.getProfilerClass(), spec -> spec.getQueryProfiler()));
+        }
+        searcher.setQueryProfilerByClass(queryProfilerByClass);
+        addQueryProfiler();
     }
 
     /** Switch to a new profile. */
@@ -96,6 +109,7 @@ public final class Profilers {
 
     /** Return the list of all created {@link QueryProfiler}s so far. */
     public List<QueryProfiler> getQueryProfilers() {
+        queryProfilers.addAll(searcher.getQueryProfilers());
         return Collections.unmodifiableList(queryProfilers);
     }
 

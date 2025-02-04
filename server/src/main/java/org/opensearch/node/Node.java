@@ -1388,7 +1388,7 @@ public class Node implements Closeable {
                 searchModule.getIndexSearcherExecutor(threadPool),
                 taskResourceTrackingService,
                 searchModule.getConcurrentSearchRequestDeciderFactories(),
-                searchModule.getQueryProfilerTimingTypes()
+                searchModule.getQueryProfilerSpecs()
             );
 
             final List<PersistentTasksExecutor<?>> tasksExecutors = pluginsService.filterPlugins(PersistentTaskPlugin.class)
@@ -2053,7 +2053,7 @@ public class Node implements Closeable {
         Executor indexSearcherExecutor,
         TaskResourceTrackingService taskResourceTrackingService,
         Collection<ConcurrentSearchRequestDecider.Factory> concurrentSearchDeciderFactories,
-        Map<Class<? extends Query>, Set<String>> profilerTimingsPerQuery
+        List<SearchPlugin.QueryProfilerSpec> queryProfilerSpecs
     ) {
         return new SearchService(
             clusterService,
@@ -2068,7 +2068,7 @@ public class Node implements Closeable {
             indexSearcherExecutor,
             taskResourceTrackingService,
             concurrentSearchDeciderFactories,
-            profilerTimingsPerQuery
+            queryProfilerSpecs
         );
     }
 
