@@ -37,7 +37,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.apache.lucene.index.DirectoryReader;
 import org.opensearch.common.annotation.PublicApi;
-import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.index.fielddata.IndexFieldData;
@@ -164,7 +163,7 @@ public final class IndexWarmer {
                 warmUpGlobalOrdinals.put(indexName, fieldType);
             }
             final CountDownLatch latch = new CountDownLatch(warmUpGlobalOrdinals.size());
-            for (DirectoryReader reader: multiReader.getSubReadersMap().values()) {
+            for (DirectoryReader reader: multiReader.getSubReadersCriteriaMap().values()) {
                 for (final MappedFieldType fieldType : warmUpGlobalOrdinals.values()) {
                     executor.execute(() -> {
                         try {

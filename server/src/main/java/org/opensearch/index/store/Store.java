@@ -1812,8 +1812,10 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
                 updateCommitData(w4, map);
                 try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(w2);
                     StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(w4)) {
-                    Lucene.combineSegmentInfos(List.of(r1.getSegmentInfos(), r2.getSegmentInfos())
-                        , new HashSet<>(List.of("200, 400")), directory()).commit(directory);
+                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                    segmentsCriteriaMap.put("200", r1.getSegmentInfos());
+                    segmentsCriteriaMap.put("400", r2.getSegmentInfos());
+                    Lucene.combineSegmentInfos(segmentsCriteriaMap, directory()).commit(directory);
                 }
             } else {
                 updateCommitData(writer, map);
@@ -1827,6 +1829,11 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             }
             if (w4 != null) {
                 w4.close();
+            }
+
+            SegmentInfos combinedSegmentInfos = Lucene.readSegmentInfos(directory);
+            if (combinedSegmentInfos != null) {
+                combinedSegmentInfos.commit(directory);
             }
             metadataLock.writeLock().unlock();
         }
@@ -1883,8 +1890,10 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
                 updateCommitData(w4, map);
                 try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(w2);
                     StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(w4)) {
-                    Lucene.combineSegmentInfos(List.of(r1.getSegmentInfos(), r2.getSegmentInfos())
-                        , new HashSet<>(List.of("200, 400")), directory()).commit(directory);
+                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                    segmentsCriteriaMap.put("200", r1.getSegmentInfos());
+                    segmentsCriteriaMap.put("400", r2.getSegmentInfos());
+                    Lucene.combineSegmentInfos(segmentsCriteriaMap, directory()).commit(directory);
                 }
             } else {
                 updateCommitData(writer, map);
@@ -1931,8 +1940,10 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
                 updateCommitData(w4, Collections.singletonMap(Translog.TRANSLOG_UUID_KEY, translogUUID));
                 try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(w2);
                     StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(w4)) {
-                    Lucene.combineSegmentInfos(List.of(r1.getSegmentInfos(), r2.getSegmentInfos())
-                        , new HashSet<>(List.of("200, 400")), directory()).commit(directory);
+                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                    segmentsCriteriaMap.put("200", r1.getSegmentInfos());
+                    segmentsCriteriaMap.put("400", r2.getSegmentInfos());
+                    Lucene.combineSegmentInfos(segmentsCriteriaMap, directory()).commit(directory);
                 }
 
             } else {
@@ -1979,8 +1990,10 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
                     updateCommitData(w4, Collections.singletonMap(Engine.HISTORY_UUID_KEY, UUIDs.randomBase64UUID()));
                     try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(w2);
                         StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(w4)) {
-                        Lucene.combineSegmentInfos(List.of(r1.getSegmentInfos(), r2.getSegmentInfos())
-                            , new HashSet<>(List.of("200, 400")), directory()).commit(directory);
+                        Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                        segmentsCriteriaMap.put("200", r1.getSegmentInfos());
+                        segmentsCriteriaMap.put("400", r2.getSegmentInfos());
+                        Lucene.combineSegmentInfos(segmentsCriteriaMap, directory()).commit(directory);
                     }
                 } else {
                     updateCommitData(writer, Collections.singletonMap(Engine.HISTORY_UUID_KEY, UUIDs.randomBase64UUID()));

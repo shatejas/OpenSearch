@@ -48,6 +48,7 @@ import org.opensearch.cluster.metadata.Metadata;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.UUIDs;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader.DelegatingCacheHelper;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
@@ -687,7 +688,7 @@ public class IndicesServiceTests extends OpenSearchSingleNodeTestCase {
     private void setupMocksForCanCache(TestSearchContext context, IndexReader.CacheHelper cacheHelper) {
         ContextIndexSearcher searcher = mock(ContextIndexSearcher.class);
         context.setSearcher(searcher);
-        DirectoryReader reader = mock(DirectoryReader.class);
+        OpenSearchMultiReader reader = mock(OpenSearchMultiReader.class);
         when(searcher.getDirectoryReader()).thenReturn(reader);
         when(searcher.getIndexReader()).thenReturn(reader);
         when(reader.getReaderCacheHelper()).thenReturn(cacheHelper);

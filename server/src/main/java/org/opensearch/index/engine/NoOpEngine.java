@@ -40,6 +40,8 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.SegmentReader;
 import org.apache.lucene.store.Directory;
 import org.opensearch.common.lucene.Lucene;
+import org.opensearch.common.lucene.index.CriteriaBasedCompositeDirectory;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.util.concurrent.ReleasableLock;
 import org.opensearch.index.seqno.SequenceNumbers;
 import org.opensearch.index.shard.DocsStats;
@@ -54,6 +56,7 @@ import org.opensearch.index.translog.TranslogManager;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -78,7 +81,7 @@ public final class NoOpEngine extends ReadOnlyEngine {
         super(config, null, null, true, Function.identity(), true);
         this.segmentsStats = new SegmentsStats();
         Directory directory = store.directory();
-        try (DirectoryReader reader = openDirectory(directory, config.getIndexSettings().isSoftDeleteEnabled())) {
+        try (OpenSearchMultiReader reader = openDirectory(directory, config.getIndexSettings().isSoftDeleteEnabled())) {
             for (LeafReaderContext ctx : reader.getContext().leaves()) {
                 SegmentReader segmentReader = Lucene.segmentReader(ctx.reader());
                 fillSegmentStats(segmentReader, true, segmentsStats);
@@ -90,49 +93,56 @@ public final class NoOpEngine extends ReadOnlyEngine {
     }
 
     @Override
-    protected DirectoryReader open(final IndexCommit commit) throws IOException {
-        final Directory directory = commit.getDirectory();
-        final List<IndexCommit> indexCommits = DirectoryReader.listCommits(directory);
-        final IndexCommit indexCommit = indexCommits.get(indexCommits.size() - 1);
-        return new DirectoryReader(directory, new LeafReader[0], null) {
-            @Override
-            protected DirectoryReader doOpenIfChanged() {
-                return null;
-            }
+    protected OpenSearchMultiReader open(final IndexCommit commit) throws IOException {
+        final Map<String, DirectoryReader> childReaderCriteriaMap = new HashMap<>();
+        final CriteriaBasedCompositeDirectory multitenantDirectory = CriteriaBasedCompositeDirectory.unwrap(commit.getDirectory());
+        for (Map.Entry<String, Directory> multitenantEntry: multitenantDirectory.getCriteriaDirectoryMapping().entrySet()) {
+            String criteria = multitenantEntry.getKey();
+            Directory directory = multitenantEntry.getValue();
+            final List<IndexCommit> indexCommits = DirectoryReader.listCommits(directory);
+            final IndexCommit indexCommit = indexCommits.get(indexCommits.size() - 1);
+            childReaderCriteriaMap.put(criteria, new DirectoryReader(directory, new LeafReader[0], null) {
+                @Override
+                protected DirectoryReader doOpenIfChanged() {
+                    return null;
+                }
 
-            @Override
-            protected DirectoryReader doOpenIfChanged(IndexCommit commit) {
-                return null;
-            }
+                @Override
+                protected DirectoryReader doOpenIfChanged(IndexCommit commit) {
+                    return null;
+                }
 
-            @Override
-            protected DirectoryReader doOpenIfChanged(IndexWriter writer, boolean applyAllDeletes) {
-                return null;
-            }
+                @Override
+                protected DirectoryReader doOpenIfChanged(IndexWriter writer, boolean applyAllDeletes) {
+                    return null;
+                }
 
-            @Override
-            public long getVersion() {
-                return 0;
-            }
+                @Override
+                public long getVersion() {
+                    return 0;
+                }
 
-            @Override
-            public boolean isCurrent() {
-                return true;
-            }
+                @Override
+                public boolean isCurrent() {
+                    return true;
+                }
 
-            @Override
-            public IndexCommit getIndexCommit() {
-                return indexCommit;
-            }
+                @Override
+                public IndexCommit getIndexCommit() {
+                    return indexCommit;
+                }
 
-            @Override
-            protected void doClose() {}
+                @Override
+                protected void doClose() {}
 
-            @Override
-            public CacheHelper getReaderCacheHelper() {
-                return null;
-            }
-        };
+                @Override
+                public CacheHelper getReaderCacheHelper() {
+                    return null;
+                }
+            });
+        }
+
+        return new OpenSearchMultiReader(commit.getDirectory(), childReaderCriteriaMap, store.shardId());
     }
 
     @Override

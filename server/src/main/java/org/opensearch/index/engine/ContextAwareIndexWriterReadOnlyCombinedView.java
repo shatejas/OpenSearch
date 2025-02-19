@@ -77,10 +77,6 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
         this.shardId = shardId;
         this.generation = 0;
         populateChildLevelGenerationMap();
-        for (IndexWriter writer: criteriaBasedIndexWriters.values()) {
-            this.indexWriterConfig = writer.getConfig();
-            break;
-        }
     }
 
     //This should be synchronised??

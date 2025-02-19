@@ -68,6 +68,7 @@ import org.opensearch.common.io.stream.BytesStreamOutput;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lifecycle.AbstractLifecycleComponent;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader.DelegatingCacheHelper;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.IndexScopedSettings;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Setting.Property;
@@ -1797,7 +1798,7 @@ public class IndicesService extends AbstractLifecycleComponent
         if (context.getQueryShardContext().isCacheable() == false) {
             return false;
         }
-        return context.searcher().getDirectoryReader().getReaderCacheHelper() instanceof DelegatingCacheHelper;
+        return context.searcher().getIndexReader().getReaderCacheHelper() instanceof DelegatingCacheHelper;
     }
 
     /**
@@ -1808,7 +1809,7 @@ public class IndicesService extends AbstractLifecycleComponent
      */
     public void loadIntoContext(ShardSearchRequest request, SearchContext context, QueryPhase queryPhase) throws Exception {
         assert canCache(request, context);
-        final DirectoryReader directoryReader = context.searcher().getDirectoryReader();
+        final OpenSearchMultiReader directoryReader = context.searcher().getDirectoryReader();
 
         boolean[] loadedFromCache = new boolean[] { true };
         BytesReference bytesReference = cacheShardLevelResult(context.indexShard(), directoryReader, request.cacheKey(), out -> {
@@ -1860,7 +1861,7 @@ public class IndicesService extends AbstractLifecycleComponent
      */
     private BytesReference cacheShardLevelResult(
         IndexShard shard,
-        DirectoryReader reader,
+        OpenSearchMultiReader reader,
         BytesReference cacheKey,
         CheckedConsumer<StreamOutput, IOException> loader
     ) throws Exception {

@@ -56,6 +56,7 @@ import org.opensearch.common.cache.store.config.CacheConfig;
 import org.opensearch.common.collect.Tuple;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Setting.Property;
 import org.opensearch.common.settings.Settings;
@@ -307,7 +308,7 @@ public final class IndicesRequestCache implements RemovalListener<ICacheKey<Indi
     BytesReference getOrCompute(
         IndicesService.IndexShardCacheEntity cacheEntity,
         CheckedSupplier<BytesReference, IOException> loader,
-        DirectoryReader reader,
+        OpenSearchMultiReader reader,
         BytesReference cacheKey
     ) throws Exception {
         assert reader.getReaderCacheHelper() != null;
@@ -328,7 +329,7 @@ public final class IndicesRequestCache implements RemovalListener<ICacheKey<Indi
             if (!registeredClosedListeners.containsKey(cleanupKey)) {
                 Boolean previous = registeredClosedListeners.putIfAbsent(cleanupKey, Boolean.TRUE);
                 if (previous == null) {
-                    OpenSearchDirectoryReader.addReaderCloseListener(reader, cleanupKey);
+                    OpenSearchMultiReader.addReaderCloseListener(reader, cleanupKey);
                 }
             }
             cacheCleanupManager.updateStaleCountOnCacheInsert(cleanupKey);
@@ -344,7 +345,7 @@ public final class IndicesRequestCache implements RemovalListener<ICacheKey<Indi
      * @param reader the reader to invalidate the cache entry for
      * @param cacheKey the cache key to invalidate
      */
-    void invalidate(IndicesService.IndexShardCacheEntity cacheEntity, DirectoryReader reader, BytesReference cacheKey) {
+    void invalidate(IndicesService.IndexShardCacheEntity cacheEntity, OpenSearchMultiReader reader, BytesReference cacheKey) {
         assert reader.getReaderCacheHelper() instanceof OpenSearchDirectoryReader.DelegatingCacheHelper;
         OpenSearchDirectoryReader.DelegatingCacheHelper delegatingCacheHelper = (OpenSearchDirectoryReader.DelegatingCacheHelper) reader
             .getReaderCacheHelper();

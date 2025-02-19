@@ -33,7 +33,6 @@
 package org.opensearch.index.engine;
 
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.search.SearcherManager;
 import org.opensearch.common.SuppressForbidden;
@@ -41,9 +40,7 @@ import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -76,7 +73,7 @@ class OpenSearchReaderManager extends ReferenceManager<OpenSearchMultiReader> {
     @Override
     protected OpenSearchMultiReader refreshIfNeeded(OpenSearchMultiReader referenceToRefresh) throws IOException {
         final Map<String, DirectoryReader> subReadersMap = new HashMap<>();
-        for (Map.Entry<String, DirectoryReader> readerCriteriaEntry: referenceToRefresh.getSubReadersMap().entrySet()) {
+        for (Map.Entry<String, DirectoryReader> readerCriteriaEntry: referenceToRefresh.getSubReadersCriteriaMap().entrySet()) {
             DirectoryReader refreshedReader = DirectoryReader.openIfChanged(readerCriteriaEntry.getValue());
             if (refreshedReader != null) {
                 subReadersMap.put(readerCriteriaEntry.getKey(), refreshedReader);

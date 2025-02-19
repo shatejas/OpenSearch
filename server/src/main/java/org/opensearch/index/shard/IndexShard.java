@@ -40,10 +40,8 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FilterDirectoryReader;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexFileNames;
-import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.SegmentInfos;
-import org.apache.lucene.index.StandardDirectoryReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryCachingPolicy;
@@ -89,7 +87,6 @@ import org.opensearch.common.io.stream.BytesStreamOutput;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
 import org.opensearch.common.lucene.Lucene;
-import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.metrics.CounterMetric;
 import org.opensearch.common.metrics.MeanMetric;
@@ -2036,7 +2033,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
     private static OpenSearchMultiReader wrapMultiReaderNonClosing(OpenSearchMultiReader multiReader) throws IOException {
         Map<String, DirectoryReader> childReaderCriteriaMap = new HashMap<>();
-        for (Map.Entry<String, DirectoryReader> childReaderEntry: multiReader.getSubReadersMap().entrySet()) {
+        for (Map.Entry<String, DirectoryReader> childReaderEntry: multiReader.getSubReadersCriteriaMap().entrySet()) {
             NonClosingReaderWrapper nonClosingReaderWrapper = new NonClosingReaderWrapper(childReaderEntry.getValue());
             childReaderCriteriaMap.put(childReaderEntry.getKey(), nonClosingReaderWrapper);
         }

@@ -9,7 +9,9 @@
 package org.opensearch.common.lucene.index;
 
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.MultiReader;
 import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.StandardDirectoryReader;
@@ -20,63 +22,39 @@ import org.opensearch.core.index.shard.ShardId;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 
 @PublicApi(since = "2.19.0")
 public class OpenSearchMultiReader extends MultiReader {
-    private final Map<String, DirectoryReader> subReadersMap;
+    private final Map<String, DirectoryReader> subReadersCriteriaMap;
     private final Directory directory;
     private final ShardId shardId;
 
-    public OpenSearchMultiReader(Directory directory, Map<String, DirectoryReader> subReadersMap, ShardId shardId)  throws IOException {
-        super(subReadersMap.values().stream().filter(Objects::nonNull).toArray(IndexReader[]::new));
-        this.subReadersMap = subReadersMap;
+    public OpenSearchMultiReader(Directory directory, Map<String, DirectoryReader> subReadersCriteriaMap, ShardId shardId)  throws IOException {
+        super(subReadersCriteriaMap.values().stream().filter(Objects::nonNull).toArray(IndexReader[]::new));
+        this.subReadersCriteriaMap = subReadersCriteriaMap;
         this.directory = directory;
         this.shardId = shardId;
     }
 
-//    public OpenSearchMultiReader(List<IndexReader> subReadersList, Directory directory, Set<String> criteriaList, ShardId shardId) throws IOException {
-//        super(subReadersList.stream().filter(Objects::nonNull).toArray(IndexReader[]::new));
-//        final IndexReader[] filteredSubReadersList = subReadersList.stream().filter(Objects::nonNull).toArray(IndexReader[]::new);
-//        this.subReadersList = Arrays.stream(filteredSubReadersList).toList();
-//        this.directory = directory;
-//        this.criteriaList = criteriaList;
-//        this.shardId = shardId;
-//    }
-
-//    public OpenSearchMultiReader(Directory directory, Set<String> criteriaList, ShardId shardId, IndexReader... subReaders) throws IOException {
-//        super(Arrays.stream(subReaders).filter(Objects::nonNull).toArray(IndexReader[]::new));
-//        this.subReadersList = Arrays.stream(subReaders).filter(Objects::nonNull).toList();
-//        this.directory = directory;
-//        this.criteriaList = criteriaList;
-//        this.shardId = shardId;
-//    }
-
-    public List<OpenSearchDirectoryReader> getSubDirectoryReaderList() {
-        final List<OpenSearchDirectoryReader> sequentialReader = new ArrayList<>();
-        for (IndexReader indexReader: subReadersMap.values()) {
-            assert indexReader instanceof OpenSearchDirectoryReader;
-            sequentialReader.add((OpenSearchDirectoryReader) indexReader);
-        }
-
-        return sequentialReader;
-    }
-
     public SegmentInfos getSegmentInfos() throws IOException {
-        final List<SegmentInfos> segmentInfos = new ArrayList<>();
-        for (IndexReader indexReader: subReadersMap.values()) {
-            assert indexReader instanceof StandardDirectoryReader;
-            segmentInfos.add(((StandardDirectoryReader) indexReader).getSegmentInfos());
+        final Map<String, SegmentInfos> segmentInfosCriteriaMap = new HashMap<>();
+        for (Map.Entry<String, DirectoryReader> subReaderEntry: subReadersCriteriaMap.entrySet()) {
+            DirectoryReader directoryReader = subReaderEntry.getValue();
+            if (Lucene.indexExists(directoryReader.directory())) {
+                String criterion = subReaderEntry.getKey();
+                assert directoryReader instanceof StandardDirectoryReader;
+                segmentInfosCriteriaMap.put(criterion, ((StandardDirectoryReader) directoryReader).getSegmentInfos());
+            }
         }
 
-        return Lucene.combineSegmentInfos(segmentInfos, subReadersMap.keySet(), directory);
+        return Lucene.combineSegmentInfos(segmentInfosCriteriaMap, directory);
     }
 
     public Directory getDirectory() {
@@ -84,11 +62,11 @@ public class OpenSearchMultiReader extends MultiReader {
     }
 
     public Set<String> getCriteriaList() {
-        return subReadersMap.keySet();
+        return subReadersCriteriaMap.keySet();
     }
 
-    public Map<String, DirectoryReader> getSubReadersMap() {
-        return subReadersMap;
+    public Map<String, DirectoryReader> getSubReadersCriteriaMap() {
+        return subReadersCriteriaMap;
     }
 
     public ShardId shardId() {
@@ -110,11 +88,19 @@ public class OpenSearchMultiReader extends MultiReader {
         cacheHelper.addClosedListener(listener);
     }
 
+    @Override
+    public CacheHelper getReaderCacheHelper() {
+        if (getSequentialSubReaders().size() >= 1) {
+            return getSequentialSubReaders().get(0).getReaderCacheHelper();
+        }
+        return null;
+    }
+
     public static OpenSearchMultiReader getOpenSearchMultiDirectoryReader(MultiReader reader) throws IOException {
         if (reader instanceof OpenSearchMultiReader) {
             Map<String, DirectoryReader> subReadersMap = new HashMap<>();
             OpenSearchMultiReader openSearchMultiReader = (OpenSearchMultiReader) reader;
-            for (Map.Entry<String, DirectoryReader> subReaderEntry: openSearchMultiReader.getSubReadersMap().entrySet()) {
+            for (Map.Entry<String, DirectoryReader> subReaderEntry: openSearchMultiReader.getSubReadersCriteriaMap().entrySet()) {
                 DirectoryReader subReader = subReaderEntry.getValue();
                 OpenSearchDirectoryReader openSearchDirectoryReader = OpenSearchDirectoryReader.getOpenSearchDirectoryReader(subReader);
                 if (openSearchDirectoryReader != null) {
@@ -133,7 +119,7 @@ public class OpenSearchMultiReader extends MultiReader {
     }
 
     public boolean isCurrent() throws IOException {
-        for (IndexReader indexReader: subReadersMap.values()) {
+        for (IndexReader indexReader: subReadersCriteriaMap.values()) {
             assert indexReader instanceof OpenSearchDirectoryReader;
             if(!((OpenSearchDirectoryReader) indexReader).isCurrent()) {
                 return false;
@@ -145,7 +131,7 @@ public class OpenSearchMultiReader extends MultiReader {
 
     public static OpenSearchMultiReader unwrap(OpenSearchMultiReader reader) throws IOException {
         Map<String, DirectoryReader> localSubReaderMap = new HashMap<>();
-        Map<String, DirectoryReader> subReadersMap = reader.getSubReadersMap();
+        Map<String, DirectoryReader> subReadersMap = reader.getSubReadersCriteriaMap();
         for (String criteria: reader.getCriteriaList()) {
             DirectoryReader directoryReader = OpenSearchDirectoryReader.unwrap(subReadersMap.get(criteria));
             if (directoryReader != null) {
@@ -159,4 +145,43 @@ public class OpenSearchMultiReader extends MultiReader {
 
         return null;
     }
+
+    public static OpenSearchMultiReader open(Directory directory, ShardId shardId, Function<DirectoryReader, DirectoryReader> readerWrapperFunction) throws IOException {
+        CriteriaBasedCompositeDirectory compositeDirectory = CriteriaBasedCompositeDirectory.unwrap(directory);
+        Map<String, DirectoryReader> subReaderCriteriaMap = new HashMap<>();
+        if (compositeDirectory != null) {
+            for (Map.Entry<String, Directory> childDirectoryEntry: compositeDirectory.getCriteriaDirectoryMapping().entrySet()) {
+                subReaderCriteriaMap.put(childDirectoryEntry.getKey(), readerWrapperFunction.apply(DirectoryReader.open(childDirectoryEntry.getValue())));
+            }
+        }
+
+        return new OpenSearchMultiReader(directory, subReaderCriteriaMap, shardId);
+    }
+
+    public static OpenSearchMultiReader open(IndexCommit commit, int minSupportedMajorVersion, ShardId shardId,
+                                             Function<DirectoryReader, DirectoryReader> readerWrapperFunction, Comparator<LeafReader> leafSorter) throws IOException {
+        final Map<String, DirectoryReader> childReaderMap = new HashMap<>();
+        final Map<String, IndexCommit> subReaderCommit = Lucene.listSubCommits(commit);
+        for (Map.Entry<String, IndexCommit> subReaderEntry: subReaderCommit.entrySet()) {
+            String criteria = subReaderEntry.getKey();
+            DirectoryReader directoryReader = DirectoryReader.open(subReaderEntry.getValue(), minSupportedMajorVersion, leafSorter);
+            childReaderMap.put(criteria, readerWrapperFunction.apply(directoryReader));
+        }
+
+        return new OpenSearchMultiReader(commit.getDirectory(), childReaderMap, shardId);
+    }
+
+    public static OpenSearchMultiReader open(IndexCommit commit, ShardId shardId,
+                                             Function<DirectoryReader, DirectoryReader> readerWrapperFunction) throws IOException {
+        final Map<String, DirectoryReader> childReaderMap = new HashMap<>();
+        final Map<String, IndexCommit> subReaderCommit = Lucene.listSubCommits(commit);
+        for (Map.Entry<String, IndexCommit> subReaderEntry: subReaderCommit.entrySet()) {
+            String criteria = subReaderEntry.getKey();
+            DirectoryReader directoryReader = DirectoryReader.open(subReaderEntry.getValue());
+            childReaderMap.put(criteria, readerWrapperFunction.apply(directoryReader));
+        }
+
+        return new OpenSearchMultiReader(commit.getDirectory(), childReaderMap, shardId);
+    }
+
 }

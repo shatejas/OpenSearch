@@ -60,14 +60,12 @@ import org.apache.lucene.search.TopFieldDocs;
 import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.search.similarities.Similarity;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.SparseFixedBitSet;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.common.lease.Releasable;
-import org.opensearch.common.lucene.index.CriteriaBasedCompositeDirectory;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.lucene.search.TopDocsAndMaxScore;
@@ -159,7 +157,7 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
 
     private static OpenSearchMultiReader wrapExitableDirectoryReader(OpenSearchMultiReader openSearchMultiReader, MutableQueryTimeout cancellable) throws IOException {
         final Map<String, DirectoryReader> subReaderMap = new HashMap<>();
-        for (Map.Entry<String, DirectoryReader> readerEntry: openSearchMultiReader.getSubReadersMap().entrySet()) {
+        for (Map.Entry<String, DirectoryReader> readerEntry: openSearchMultiReader.getSubReadersCriteriaMap().entrySet()) {
             DirectoryReader subReader = readerEntry.getValue();
             assert subReader instanceof OpenSearchDirectoryReader;
             subReaderMap.put(readerEntry.getKey(), new ExitableDirectoryReader((OpenSearchDirectoryReader) subReader, cancellable));
@@ -544,10 +542,10 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
         return slicesInternal(leaves, searchContext.getTargetMaxSliceCount());
     }
 
-    public DirectoryReader getDirectoryReader() {
+    public OpenSearchMultiReader getDirectoryReader() {
         final IndexReader reader = getIndexReader();
-        assert reader instanceof DirectoryReader : "expected an instance of DirectoryReader, got " + reader.getClass();
-        return (DirectoryReader) reader;
+        assert reader instanceof OpenSearchMultiReader : "expected an instance of DirectoryReader, got " + reader.getClass();
+        return (OpenSearchMultiReader) reader;
     }
 
     private static class MutableQueryTimeout implements ExitableDirectoryReader.QueryCancellation {

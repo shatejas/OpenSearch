@@ -47,8 +47,11 @@ public class CriteriaBasedCompositeDirectory extends FilterDirectory {
         super(in);
         this.multiTenantDirectory = in;
         this.criteriaDirectoryMapping = criteriaDirectoryMapping;
-//        Lucene.readSegmentInfos(this).write(new ByteBuffersIndexOutput(new ByteBuffersDataOutput(),
-//            "segments_1", "segments_1", new CRC32(), this::onClose));
+        SegmentInfos combinedSegmentInfos = Lucene.readSegmentInfos(this);
+        if (combinedSegmentInfos != null) {
+            segment_N_name = "segments_1";
+            combinedSegmentInfos.commit(this);
+        }
     }
 
     public Directory getDirectory(String criteria) {
@@ -57,6 +60,10 @@ public class CriteriaBasedCompositeDirectory extends FilterDirectory {
 
     public Set<String> getCriteriaList() {
         return criteriaDirectoryMapping.keySet();
+    }
+
+    public Map<String, Directory> getCriteriaDirectoryMapping() {
+        return criteriaDirectoryMapping;
     }
 
     // TODO: Handling references of parent IndexWriter for deleting files of child IndexWriter

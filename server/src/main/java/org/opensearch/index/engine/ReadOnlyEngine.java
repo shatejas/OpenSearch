@@ -123,7 +123,7 @@ public class ReadOnlyEngine extends Engine {
         SeqNoStats seqNoStats,
         TranslogStats translogStats,
         boolean obtainLock,
-        Function<DirectoryReader, DirectoryReader> readerWrapperFunction,
+        Function<OpenSearchMultiReader, OpenSearchMultiReader> readerWrapperFunction,
         boolean requireCompleteHistory
     ) {
         super(config);
@@ -134,19 +134,18 @@ public class ReadOnlyEngine extends Engine {
             Store store = config.getStore();
             store.incRef();
             OpenSearchMultiReader reader = null;
-            Directory directory = store.directory();
+            CriteriaBasedCompositeDirectory directory = CriteriaBasedCompositeDirectory.unwrap(store.directory());
             List<Lock> indexWriterLockList = new ArrayList<>();
             boolean success = false;
             try {
-                assert directory instanceof CriteriaBasedCompositeDirectory;
-                CriteriaBasedCompositeDirectory compositeDirectory = (CriteriaBasedCompositeDirectory) directory;
+                assert directory != null;
                 // we obtain the IW lock even though we never modify the index.
                 // yet this makes sure nobody else does. including some testing tools that try to be messy
-                for (Directory childDirectory: compositeDirectory.getChildDirectoryList()) {
+                for (Directory childDirectory: directory.getChildDirectoryList()) {
                     indexWriterLockList.add(childDirectory.obtainLock(IndexWriter.WRITE_LOCK_NAME));
                 }
 
-                this.combinedView = new ContextAwareIndexWriterReadOnlyCombinedView(compositeDirectory, shardId);
+                this.combinedView = new ContextAwareIndexWriterReadOnlyCombinedView(directory, shardId);
                 this.lastCommittedSegmentInfos = combinedView.getLatestSegmentInfos(isExtendedCompatibility(), this.minimumSupportedVersion);
                 if (seqNoStats == null) {
                     seqNoStats = buildSeqNoStats(config, lastCommittedSegmentInfos);
@@ -156,9 +155,7 @@ public class ReadOnlyEngine extends Engine {
 
                 // TODO: Fix this.
                 this.indexCommit = Lucene.getCombinedIndexCommit(lastCommittedSegmentInfos, directory, combinedView.getChildLastGenerationList());
-                Map<String, DirectoryReader> readerMap = new HashMap<>();
-                readerMap.put("200", wrapReader(open(indexCommit), readerWrapperFunction));
-                reader = new OpenSearchMultiReader(store.directory(),readerMap, shardId);
+                reader = wrapReader(open(indexCommit), readerWrapperFunction);
                 readerManager = new OpenSearchReaderManager(reader);
                 assert translogStats != null || obtainLock : "mutiple translogs instances should not be opened at the same time";
                 this.translogStats = translogStats != null ? translogStats : translogStats(config, lastCommittedSegmentInfos);
@@ -218,23 +215,35 @@ public class ReadOnlyEngine extends Engine {
         // reopened as an internal engine, which would be the path to fix the issue.
     }
 
-    protected final OpenSearchDirectoryReader wrapReader(
-        DirectoryReader reader,
-        Function<DirectoryReader, DirectoryReader> readerWrapperFunction
+    protected final OpenSearchMultiReader wrapReader(
+        OpenSearchMultiReader reader,
+        Function<OpenSearchMultiReader, OpenSearchMultiReader> readerWrapperFunction
     ) throws IOException {
-        reader = readerWrapperFunction.apply(reader);
-        return OpenSearchDirectoryReader.wrap(reader, engineConfig.getShardId());
+        return readerWrapperFunction.apply(reader);
     }
 
-    protected DirectoryReader open(IndexCommit commit) throws IOException {
+    protected OpenSearchMultiReader open(IndexCommit commit) throws IOException {
         assert Transports.assertNotTransportThread("opening index commit of a read-only engine");
-        DirectoryReader reader;
+        OpenSearchMultiReader reader;
         if (isExtendedCompatibility()) {
-            reader = DirectoryReader.open(commit, this.minimumSupportedVersion.luceneVersion.major, null);
+            reader = OpenSearchMultiReader.open(commit, this.minimumSupportedVersion.luceneVersion.major, shardId, (childReader) -> {
+                try {
+                    return new SoftDeletesDirectoryReaderWrapper(childReader, Lucene.SOFT_DELETES_FIELD);
+                } catch (IOException e) {
+                    return null;
+                }
+
+            }, null);
         } else {
-            reader = DirectoryReader.open(commit);
+            reader = OpenSearchMultiReader.open(commit, shardId, (childReader) -> {
+                try {
+                    return new SoftDeletesDirectoryReaderWrapper(childReader, Lucene.SOFT_DELETES_FIELD);
+                } catch (IOException e) {
+                    return null;
+                }
+            });
         }
-        return new SoftDeletesDirectoryReaderWrapper(reader, Lucene.SOFT_DELETES_FIELD);
+        return reader;
     }
 
     private boolean isExtendedCompatibility() {
@@ -520,13 +529,18 @@ public class ReadOnlyEngine extends Engine {
             + getMaxSeqNoOfUpdatesOrDeletes();
     }
 
-    protected static DirectoryReader openDirectory(Directory directory, boolean wrapSoftDeletes) throws IOException {
+    protected OpenSearchMultiReader openDirectory(Directory directory, boolean wrapSoftDeletes) throws IOException {
         assert Transports.assertNotTransportThread("opening directory reader of a read-only engine");
-        final DirectoryReader reader = DirectoryReader.open(directory);
         if (wrapSoftDeletes) {
-            return new SoftDeletesDirectoryReaderWrapper(reader, Lucene.SOFT_DELETES_FIELD);
+            return OpenSearchMultiReader.open(directory, shardId, (childReader) -> {
+                try {
+                    return new SoftDeletesDirectoryReaderWrapper(childReader, Lucene.SOFT_DELETES_FIELD);
+                } catch (IOException e) {
+                    return null;
+                }
+            });
         } else {
-            return reader;
+            return OpenSearchMultiReader.open(directory, shardId, null);
         }
     }
 

@@ -334,8 +334,10 @@ public class InternalEngine extends Engine {
 
                     try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(criteriaBasedIndexWriters.get("200"));
                         StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(criteriaBasedIndexWriters.get("400"))) {
-                        Lucene.combineSegmentInfos(List.of(r1.getSegmentInfos(), r2.getSegmentInfos())
-                            , new HashSet<>(List.of("200, 400")), store.directory()).commit(store.directory());
+                        Map<String, SegmentInfos> segmentInfosCriteriaMap = new HashMap<>();
+                        segmentInfosCriteriaMap.put("200", r1.getSegmentInfos());
+                        segmentInfosCriteriaMap.put("400", r2.getSegmentInfos());
+                        Lucene.combineSegmentInfos(segmentInfosCriteriaMap, store.directory()).commit(store.directory());
                     }
                 } else {
                     childLevelCombinedDeletionPolicyMap.put("-1", new CombinedDeletionPolicy(
@@ -2294,16 +2296,16 @@ public class InternalEngine extends Engine {
     // Should we try some other to read last commit? Something last index commit of combined deletion segment infos.
     private IndexCommit combineLastIndexCommit(Map<String, IndexCommit> lastCommits) throws IOException {
         assert lastCommits.size() == childLevelCombinedDeletionPolicyMap.size();
-        final List<SegmentInfos> childLevelSegmentInfos = new ArrayList<>();
+        final Map<String, SegmentInfos> childLevelSegmentInfosCriteriaMap = new HashMap<>();
         final Map<String, Long> generationList = new HashMap<>();
         for (Map.Entry<String, IndexCommit> lastCommitEntry : lastCommits.entrySet()) {
             IndexCommit lastCommit = lastCommitEntry.getValue();
             SegmentInfos currentInfos = Lucene.readSegmentInfos(lastCommit);
             generationList.put(lastCommitEntry.getKey(), lastCommit.getGeneration());
-            childLevelSegmentInfos.add(currentInfos);
+            childLevelSegmentInfosCriteriaMap.put(lastCommitEntry.getKey(), currentInfos);
         }
 
-        final SegmentInfos combinedInfos = Lucene.combineSegmentInfos(childLevelSegmentInfos, criteriaBasedIndexWriters.keySet(), store.directory());
+        final SegmentInfos combinedInfos = Lucene.combineSegmentInfos(childLevelSegmentInfosCriteriaMap, store.directory());
         return Lucene.getCombinedIndexCommit(combinedInfos, store.directory(), generationList);
     }
 
