@@ -661,10 +661,16 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
             }
 
             Map<String, Directory> criteriaDirectoryMapping = new HashMap<>();
-            criteriaDirectoryMapping.put("200", directoryFactory.newFSDirectory(path.resolveIndex().resolve("200"),
-                this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING), this.indexSettings));
-            criteriaDirectoryMapping.put("400", directoryFactory.newFSDirectory(path.resolveIndex().resolve("400"),
-                this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING), this.indexSettings));
+            if (this.indexSettings.isContextAwareEnabled()) {
+                criteriaDirectoryMapping.put("200", directoryFactory.newFSDirectory(path.resolveIndex().resolve("200"),
+                    this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING), this.indexSettings));
+                criteriaDirectoryMapping.put("400", directoryFactory.newFSDirectory(path.resolveIndex().resolve("400"),
+                    this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING), this.indexSettings));
+            } else {
+                criteriaDirectoryMapping.put("-1", directoryFactory.newFSDirectory(path.resolveIndex().resolve("-1"),
+                    this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING), this.indexSettings));
+            }
+
             store = new Store(
                 shardId,
                 this.indexSettings,

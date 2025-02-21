@@ -209,7 +209,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
         super(shardId, indexSettings);
         final TimeValue refreshInterval = indexSettings.getValue(INDEX_STORE_STATS_REFRESH_INTERVAL_SETTING);
         logger.debug("store stats are refreshed with refresh_interval [{}]", refreshInterval);
-        if (criteriaDirectoryMapping != null && indexSettings.isContextAwareEnabled()) {
+        if (criteriaDirectoryMapping != null) {
             multiTenantDirectory = new CriteriaBasedCompositeDirectory(multiTenantDirectory,criteriaDirectoryMapping);
             this.directoryMapping = new HashMap<>(criteriaDirectoryMapping.size());
             criteriaDirectoryMapping.keySet().forEach(criteria -> {
@@ -217,7 +217,6 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
                     new StoreDirectory(new ByteSizeCachingDirectory(criteriaDirectoryMapping.get(criteria), refreshInterval),
                         Loggers.getLogger("index.store.deletes", shardId)));
             });
-
         } else {
             this.directoryMapping = null;
         }
@@ -1796,7 +1795,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             w2 = newEmptyIndexWriter(directoryMapping.get("200"), luceneVersion);
             w4 = newEmptyIndexWriter(directoryMapping.get("400"), luceneVersion);
         } else {
-            writer = newEmptyIndexWriter(directory, luceneVersion);
+            writer = newEmptyIndexWriter(directoryMapping.get("-1"), luceneVersion);
         }
         try {
             final Map<String, String> map = new HashMap<>();
@@ -1819,6 +1818,11 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
                 }
             } else {
                 updateCommitData(writer, map);
+                try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(writer)) {
+                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                    segmentsCriteriaMap.put("-1", r1.getSegmentInfos());
+                    Lucene.combineSegmentInfos(segmentsCriteriaMap, directory()).commit(directory);
+                }
             }
         } finally {
             if (writer != null) {
@@ -1877,7 +1881,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             w2 = newAppendingIndexWriter(directoryMapping.get("200"), null);
             w4 = newAppendingIndexWriter(directoryMapping.get("400"), null);
         } else {
-            writer = newAppendingIndexWriter(directory, null);
+            writer = newAppendingIndexWriter(directoryMapping.get("-1"), null);
         }
 
         try {
@@ -1897,6 +1901,11 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
                 }
             } else {
                 updateCommitData(writer, map);
+                try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(writer)) {
+                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                    segmentsCriteriaMap.put("-1", r1.getSegmentInfos());
+                    Lucene.combineSegmentInfos(segmentsCriteriaMap, directory()).commit(directory);
+                }
             }
         } finally {
             if (writer != null) {
@@ -1927,7 +1936,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             w4 = newAppendingIndexWriter(directoryMapping.get("400"), null);
             defWriter = w2;
         } else {
-            writer = newAppendingIndexWriter(directory, null);
+            writer = newAppendingIndexWriter(directoryMapping.get("-1"), null);
             defWriter = writer;
         }
         try {
@@ -1948,6 +1957,11 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
 
             } else {
                 updateCommitData(writer, Collections.singletonMap(Translog.TRANSLOG_UUID_KEY, translogUUID));
+                try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(writer)) {
+                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                    segmentsCriteriaMap.put("-1", r1.getSegmentInfos());
+                    Lucene.combineSegmentInfos(segmentsCriteriaMap, directory()).commit(directory);
+                }
             }
         } finally {
             if (writer != null) {
@@ -1975,7 +1989,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             w2 = newAppendingIndexWriter(directoryMapping.get("200"), null);
             w4 = newAppendingIndexWriter(directoryMapping.get("400"), null);
         } else {
-            writer = newAppendingIndexWriter(directory, null);
+            writer = newAppendingIndexWriter(directoryMapping.get("-1"), null);
         }
         try {
             Map<String, String> userData = null;
@@ -1997,6 +2011,11 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
                     }
                 } else {
                     updateCommitData(writer, Collections.singletonMap(Engine.HISTORY_UUID_KEY, UUIDs.randomBase64UUID()));
+                    try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(writer)) {
+                        Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                        segmentsCriteriaMap.put("-1", r1.getSegmentInfos());
+                        Lucene.combineSegmentInfos(segmentsCriteriaMap, directory()).commit(directory);
+                    }
                 }
 
             }

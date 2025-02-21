@@ -91,7 +91,7 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
     }
 
     public Iterable<Map.Entry<String, String>> getUserData() {
-        return criteriaBasedIndexWriters.get("200").getLiveCommitData();
+        return criteriaBasedIndexWriters.get(criteriaList.stream().findFirst().get()).getLiveCommitData();
     }
 
     public OpenSearchMultiReader openMultiReader() throws IOException {
