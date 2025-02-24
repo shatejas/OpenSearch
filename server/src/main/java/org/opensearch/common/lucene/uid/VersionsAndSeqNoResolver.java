@@ -169,6 +169,7 @@ public final class VersionsAndSeqNoResolver {
      * <li>a doc ID and a version otherwise
      * </ul>
      */
+
     public static DocIdAndVersion loadDocIdAndVersion(IndexReader reader, Term term, boolean loadSeqNo) throws IOException {
         PerThreadIDVersionAndSeqNoLookup[] lookups = getLookupState(reader, term.field());
         List<LeafReaderContext> leaves = reader.leaves();

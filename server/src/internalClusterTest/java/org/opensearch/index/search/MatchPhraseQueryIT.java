@@ -65,7 +65,8 @@ public class MatchPhraseQueryIT extends ParameterizedStaticSettingsOpenSearchInt
     @ParametersFactory
     public static Collection<Object[]> parameters() {
         return Arrays.asList(
-            new Object[] { Settings.builder().put(CLUSTER_CONCURRENT_SEGMENT_SEARCH_SETTING.getKey(), false).build() },
+            new Object[] { Settings.builder().put(CLUSTER_CONCURRENT_SEGMENT_SEARCH_SETTING.getKey(), false)
+                .put("indices.requests.cache.maximum_cacheable_size", 1000).build() },
             new Object[] { Settings.builder().put(CLUSTER_CONCURRENT_SEGMENT_SEARCH_SETTING.getKey(), true).build() }
         );
     }
@@ -77,6 +78,7 @@ public class MatchPhraseQueryIT extends ParameterizedStaticSettingsOpenSearchInt
             Settings.builder()
                 .put(indexSettings())
                 .put("index.analysis.analyzer.standard_stopwords.type", "standard")
+                .put("index.context_aware.enabled", true)
                 .putList("index.analysis.analyzer.standard_stopwords.stopwords", "of", "the", "who")
         );
         assertAcked(createIndexRequest);

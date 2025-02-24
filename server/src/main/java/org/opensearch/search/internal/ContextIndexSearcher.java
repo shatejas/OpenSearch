@@ -542,7 +542,7 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
         return slicesInternal(leaves, searchContext.getTargetMaxSliceCount());
     }
 
-    public OpenSearchMultiReader getDirectoryReader() {
+    public OpenSearchMultiReader getMultiReader() {
         final IndexReader reader = getIndexReader();
         assert reader instanceof OpenSearchMultiReader : "expected an instance of DirectoryReader, got " + reader.getClass();
         return (OpenSearchMultiReader) reader;

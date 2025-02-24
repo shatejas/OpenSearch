@@ -398,7 +398,7 @@ public class IndexMetadata implements Diffable<IndexMetadata>, ToXContentFragmen
 
     public static final Setting<Boolean> INDEX_CONTEXT_AWARE_ENABLED_SETTING = Setting.boolSetting(
         SETTING_CONTEXT_AWARE_ENABLED,
-        false,
+        true,
         Property.IndexScope,
         Property.Dynamic
     );

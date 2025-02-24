@@ -598,9 +598,14 @@ public class IndexShardIT extends OpenSearchSingleNodeTestCase {
     }
 
     public void testFlushStats() throws Exception {
-        final IndexService indexService = createIndex("test");
+        final Settings settingsInitial = Settings.builder()
+            .put("index.number_of_shards", 1)
+            .put("index.context_aware.enabled", true)
+            .build();
+        final IndexService indexService = createIndex("test", settingsInitial);
         ensureGreen();
-        Settings settings = Settings.builder().put("index.translog.flush_threshold_size", "" + between(200, 300) + "b").put("index.context_aware.enabled", true).build();
+        Settings settings = Settings.builder().put("index.translog.flush_threshold_size", "" + between(200, 300) + "b")
+            .put("index.context_aware.enabled", true).build();
         client().admin().indices().prepareUpdateSettings("test").setSettings(settings).get();
         final int numDocs = between(10, 100);
         for (int i = 0; i < numDocs; i++) {

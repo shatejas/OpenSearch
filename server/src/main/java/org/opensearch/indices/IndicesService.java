@@ -35,7 +35,6 @@ package org.opensearch.indices;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
-import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader.CacheHelper;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.util.CollectionUtil;
@@ -67,6 +66,7 @@ import org.opensearch.common.cache.service.CacheService;
 import org.opensearch.common.io.stream.BytesStreamOutput;
 import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lifecycle.AbstractLifecycleComponent;
+import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader.DelegatingCacheHelper;
 import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.IndexScopedSettings;
@@ -1790,15 +1790,25 @@ public class IndicesService extends AbstractLifecycleComponent
         } else if (request.requestCache() == false) {
             return false;
         }
-        // We use the cacheKey of the index reader as a part of a key of the IndicesRequestCache.
-        assert context.searcher().getIndexReader().getReaderCacheHelper() != null;
 
+        assert context.searcher().getIndexReader() instanceof OpenSearchMultiReader;
+        List<String> criteriaList = Lucene.getTenantsForQuery(request);
+        OpenSearchMultiReader multiReader = (OpenSearchMultiReader) context.searcher().getIndexReader();
         // if now in millis is used (or in the future, a more generic "isDeterministic" flag
         // then we can't cache based on "now" key within the search request, as it is not deterministic
         if (context.getQueryShardContext().isCacheable() == false) {
             return false;
         }
-        return context.searcher().getIndexReader().getReaderCacheHelper() instanceof DelegatingCacheHelper;
+
+        for (String criteria: criteriaList) {
+            // We use the cacheKey of the index reader as a part of a key of the IndicesRequestCache.
+            assert multiReader.getReaderCacheHelper(criteria) != null;
+            if (!(multiReader.getReaderCacheHelper(criteria) instanceof DelegatingCacheHelper)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -1809,10 +1819,10 @@ public class IndicesService extends AbstractLifecycleComponent
      */
     public void loadIntoContext(ShardSearchRequest request, SearchContext context, QueryPhase queryPhase) throws Exception {
         assert canCache(request, context);
-        final OpenSearchMultiReader directoryReader = context.searcher().getDirectoryReader();
+        final OpenSearchMultiReader multiReader = context.searcher().getMultiReader();
 
         boolean[] loadedFromCache = new boolean[] { true };
-        BytesReference bytesReference = cacheShardLevelResult(context.indexShard(), directoryReader, request.cacheKey(), out -> {
+        BytesReference bytesReference = cacheShardLevelResult(context.indexShard(), multiReader, request.cacheKey(), out -> {
             long beforeQueryPhase = System.nanoTime();
             queryPhase.execute(context);
             // Write relevant info for cache tier policies before the whole QuerySearchResult, so we don't have to read
@@ -1820,7 +1830,7 @@ public class IndicesService extends AbstractLifecycleComponent
             CachedQueryResult cachedQueryResult = new CachedQueryResult(context.queryResult(), System.nanoTime() - beforeQueryPhase);
             cachedQueryResult.writeToNoId(out);
             loadedFromCache[0] = false;
-        });
+        }, request);
 
         if (loadedFromCache[0]) {
             // restore the cached query result into the context
@@ -1836,7 +1846,7 @@ public class IndicesService extends AbstractLifecycleComponent
             // key invalidate the result in the thread that caused the timeout. This will end up to be simpler and eventually correct since
             // running a search that times out concurrently will likely timeout again if it's run while we have this `stale` result in the
             // cache. One other option is to not cache requests with a timeout at all...
-            indicesRequestCache.invalidate(new IndexShardCacheEntity(context.indexShard()), directoryReader, request.cacheKey());
+            indicesRequestCache.invalidate(new IndexShardCacheEntity(context.indexShard()), multiReader, request.cacheKey(), request);
             if (logger.isTraceEnabled()) {
                 logger.trace(
                     "Query timed out, invalidating cache entry for request on shard [{}]:\n {}",
@@ -1863,7 +1873,8 @@ public class IndicesService extends AbstractLifecycleComponent
         IndexShard shard,
         OpenSearchMultiReader reader,
         BytesReference cacheKey,
-        CheckedConsumer<StreamOutput, IOException> loader
+        CheckedConsumer<StreamOutput, IOException> loader,
+        ShardSearchRequest request
     ) throws Exception {
         CheckedSupplier<BytesReference, IOException> supplier = () -> {
             /* BytesStreamOutput allows to pass the expected size but by default uses
@@ -1881,7 +1892,7 @@ public class IndicesService extends AbstractLifecycleComponent
                 return out.bytes();
             }
         };
-        return indicesRequestCache.getOrCompute(new IndexShardCacheEntity(shard), supplier, reader, cacheKey);
+        return indicesRequestCache.getOrCompute(new IndexShardCacheEntity(shard), supplier, reader, cacheKey, request);
     }
 
     /**

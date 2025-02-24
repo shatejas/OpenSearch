@@ -95,6 +95,9 @@ import org.opensearch.core.common.io.stream.StreamOutput;
 import org.opensearch.index.analysis.AnalyzerScope;
 import org.opensearch.index.analysis.NamedAnalyzer;
 import org.opensearch.index.fielddata.IndexFieldData;
+import org.opensearch.index.query.MatchPhraseQueryBuilder;
+import org.opensearch.index.query.QueryBuilder;
+import org.opensearch.search.internal.ShardSearchRequest;
 import org.opensearch.search.sort.SortedWiderNumericSortField;
 
 import java.io.IOException;
@@ -267,12 +270,10 @@ public class Lucene {
     public static SegmentInfos readSegmentInfos(IndexCommit commit) throws IOException {
         // Using commit.getSegmentsFileName() does NOT work here, have to
         // manually create the segment filename
-        if (commit instanceof CombinedCommitPoint) {
-            assert commit.getDirectory() instanceof CriteriaBasedCompositeDirectory;
-            CombinedCommitPoint  combinedCommitPoint = (CombinedCommitPoint) commit;
+        if (commit instanceof CombinedCommitPoint combinedCommitPoint) {
+            CriteriaBasedCompositeDirectory compositeDirectory = CriteriaBasedCompositeDirectory.unwrap(commit.getDirectory());
             Map<String, SegmentInfos> infosCriteriaMap = new HashMap<>();
             Map<String, Long> generationMap = combinedCommitPoint.getChildIndexWriterGenerations();
-            CriteriaBasedCompositeDirectory compositeDirectory = (CriteriaBasedCompositeDirectory) commit.getDirectory();
             for (Map.Entry<String, Long> entry : generationMap.entrySet()) {
                 infosCriteriaMap.put(entry.getKey(), readSegmentInfosUtil(compositeDirectory.getDirectory(entry.getKey()), entry.getValue()));
             }
@@ -1032,6 +1033,17 @@ public class Lucene {
             childReaderMap.put(childDirectoryReader.getKey(), wrapAllDocsLive(childDirectoryReader.getValue()));
         }
         return new OpenSearchMultiReader(in.getDirectory(), childReaderMap, in.shardId());
+    }
+
+    public static List<String> getTenantsForQuery(ShardSearchRequest request) {
+        QueryBuilder requestQueryBuilder = request.source().query();
+        if (requestQueryBuilder instanceof MatchPhraseQueryBuilder matchPhraseQueryBuilder) {
+            if (matchPhraseQueryBuilder.fieldName().equals("status")) {
+                return List.of(matchPhraseQueryBuilder.value().toString());
+            }
+        }
+
+        throw new AssertionError("unexpected query builder: " + requestQueryBuilder);
     }
 
     /**

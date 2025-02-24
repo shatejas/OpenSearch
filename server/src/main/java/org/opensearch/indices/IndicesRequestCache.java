@@ -34,7 +34,6 @@ package org.opensearch.indices;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.RamUsageEstimator;
@@ -55,6 +54,7 @@ import org.opensearch.common.cache.stats.ImmutableCacheStatsHolder;
 import org.opensearch.common.cache.store.config.CacheConfig;
 import org.opensearch.common.collect.Tuple;
 import org.opensearch.common.lease.Releasable;
+import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.lucene.index.OpenSearchMultiReader;
 import org.opensearch.common.settings.Setting;
@@ -71,6 +71,7 @@ import org.opensearch.core.common.unit.ByteSizeValue;
 import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.index.shard.IndexShard;
+import org.opensearch.search.internal.ShardSearchRequest;
 import org.opensearch.threadpool.ThreadPool;
 
 import java.io.Closeable;
@@ -309,27 +310,34 @@ public final class IndicesRequestCache implements RemovalListener<ICacheKey<Indi
         IndicesService.IndexShardCacheEntity cacheEntity,
         CheckedSupplier<BytesReference, IOException> loader,
         OpenSearchMultiReader reader,
-        BytesReference cacheKey
+        BytesReference cacheKey,
+        ShardSearchRequest request
     ) throws Exception {
-        assert reader.getReaderCacheHelper() != null;
-        assert reader.getReaderCacheHelper() instanceof OpenSearchDirectoryReader.DelegatingCacheHelper;
+        final StringBuilder readerCacheKeyIdBuilder = new StringBuilder();
+        final List<String> criteriaList = Lucene.getTenantsForQuery(request);
+        for (String criteria: criteriaList) {
+            assert reader.getReaderCacheHelper(criteria) != null;
+            assert reader.getReaderCacheHelper(criteria) instanceof OpenSearchDirectoryReader.DelegatingCacheHelper;
 
-        OpenSearchDirectoryReader.DelegatingCacheHelper delegatingCacheHelper = (OpenSearchDirectoryReader.DelegatingCacheHelper) reader
-            .getReaderCacheHelper();
-        String readerCacheKeyId = delegatingCacheHelper.getDelegatingCacheKey().getId();
-        assert readerCacheKeyId != null;
+            OpenSearchDirectoryReader.DelegatingCacheHelper delegatingCacheHelper = (OpenSearchDirectoryReader.DelegatingCacheHelper) reader
+                .getReaderCacheHelper(criteria);
+            String currentReaderCacheKeyId = delegatingCacheHelper.getDelegatingCacheKey().getId();
+            assert currentReaderCacheKeyId != null;
+            readerCacheKeyIdBuilder.append(currentReaderCacheKeyId).append("$");
+        }
+
         IndexShard indexShard = ((IndexShard) cacheEntity.getCacheIdentity());
-        final Key key = new Key(indexShard.shardId(), cacheKey, readerCacheKeyId, System.identityHashCode(indexShard));
+        final Key key = new Key(indexShard.shardId(), cacheKey, readerCacheKeyIdBuilder.toString(), System.identityHashCode(indexShard));
         Loader cacheLoader = new Loader(cacheEntity, loader);
         BytesReference value = cache.computeIfAbsent(getICacheKey(key), cacheLoader);
         if (cacheLoader.isLoaded()) {
             cacheEntity.onMiss();
             // see if it's the first time we see this reader, and make sure to register a cleanup key
-            CleanupKey cleanupKey = new CleanupKey(cacheEntity, readerCacheKeyId);
+            CleanupKey cleanupKey = new CleanupKey(cacheEntity, readerCacheKeyIdBuilder.toString());
             if (!registeredClosedListeners.containsKey(cleanupKey)) {
                 Boolean previous = registeredClosedListeners.putIfAbsent(cleanupKey, Boolean.TRUE);
                 if (previous == null) {
-                    OpenSearchMultiReader.addReaderCloseListener(reader, cleanupKey);
+                    OpenSearchMultiReader.addReaderCloseListener(reader, cleanupKey, criteriaList);
                 }
             }
             cacheCleanupManager.updateStaleCountOnCacheInsert(cleanupKey);
@@ -345,14 +353,21 @@ public final class IndicesRequestCache implements RemovalListener<ICacheKey<Indi
      * @param reader the reader to invalidate the cache entry for
      * @param cacheKey the cache key to invalidate
      */
-    void invalidate(IndicesService.IndexShardCacheEntity cacheEntity, OpenSearchMultiReader reader, BytesReference cacheKey) {
-        assert reader.getReaderCacheHelper() instanceof OpenSearchDirectoryReader.DelegatingCacheHelper;
-        OpenSearchDirectoryReader.DelegatingCacheHelper delegatingCacheHelper = (OpenSearchDirectoryReader.DelegatingCacheHelper) reader
-            .getReaderCacheHelper();
-        String readerCacheKeyId = delegatingCacheHelper.getDelegatingCacheKey().getId();
+    void invalidate(IndicesService.IndexShardCacheEntity cacheEntity, OpenSearchMultiReader reader, BytesReference cacheKey, ShardSearchRequest request) {
+        final StringBuilder readerCacheKeyIdBuilder = new StringBuilder();
+        final List<String> criteriaList = Lucene.getTenantsForQuery(request);
+        for (String criteria: criteriaList) {
+            assert reader.getReaderCacheHelper(criteria) instanceof OpenSearchDirectoryReader.DelegatingCacheHelper;
+            OpenSearchDirectoryReader.DelegatingCacheHelper delegatingCacheHelper = (OpenSearchDirectoryReader.DelegatingCacheHelper) reader
+                .getReaderCacheHelper(criteria);
+
+            String currentReaderCacheKeyId = delegatingCacheHelper.getDelegatingCacheKey().getId();
+            readerCacheKeyIdBuilder.append(currentReaderCacheKeyId).append("$");
+        }
 
         IndexShard indexShard = (IndexShard) cacheEntity.getCacheIdentity();
-        cache.invalidate(getICacheKey(new Key(indexShard.shardId(), cacheKey, readerCacheKeyId, System.identityHashCode(indexShard))));
+        cache.invalidate(getICacheKey(new Key(indexShard.shardId(), cacheKey, readerCacheKeyIdBuilder.toString(),
+            System.identityHashCode(indexShard))));
     }
 
     /**

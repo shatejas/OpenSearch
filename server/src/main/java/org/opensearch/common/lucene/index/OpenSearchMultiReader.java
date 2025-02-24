@@ -30,6 +30,11 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 
+/**
+ * OpenSearchMultiReader
+ *
+ * @opensearch.api
+ */
 @PublicApi(since = "2.19.0")
 public class OpenSearchMultiReader extends MultiReader {
     private final Map<String, DirectoryReader> subReadersCriteriaMap;
@@ -73,27 +78,33 @@ public class OpenSearchMultiReader extends MultiReader {
         return shardId;
     }
 
-    public static void addReaderCloseListener(OpenSearchMultiReader reader, IndexReader.ClosedListener listener) throws IOException {
+    public static void addReaderCloseListener(OpenSearchMultiReader reader, IndexReader.ClosedListener listener, List<String> criteriaList) throws IOException {
         OpenSearchMultiReader openSearchMultiReader = getOpenSearchMultiDirectoryReader(reader);
         if (openSearchMultiReader == null) {
             throw new IllegalArgumentException(
                 "Can't install close listener reader is not an OpenSearchDirectoryReader/OpenSearchLeafReader"
             );
         }
-        IndexReader.CacheHelper cacheHelper = openSearchMultiReader.getReaderCacheHelper();
-        if (cacheHelper == null) {
-            throw new IllegalArgumentException("Reader " + openSearchMultiReader + " does not support caching");
+
+        for (String criteria : criteriaList) {
+            IndexReader.CacheHelper cacheHelper = openSearchMultiReader.getReaderCacheHelper(criteria);
+            if (cacheHelper == null) {
+                throw new IllegalArgumentException("Reader " + openSearchMultiReader + " does not support caching");
+            }
+
+            //TODO: Do we need this?
+//          assert cacheHelper.getKey() == reader.getReaderCacheHelper(criteria).getKey();
+            cacheHelper.addClosedListener(listener);
         }
-        assert cacheHelper.getKey() == reader.getReaderCacheHelper().getKey();
-        cacheHelper.addClosedListener(listener);
     }
 
     @Override
     public CacheHelper getReaderCacheHelper() {
-        if (getSequentialSubReaders().size() >= 1) {
-            return getSequentialSubReaders().get(0).getReaderCacheHelper();
-        }
-        return null;
+        throw new UnsupportedOperationException();
+    }
+
+    public CacheHelper getReaderCacheHelper(String criteria) {
+        return subReadersCriteriaMap.get(criteria).getReaderCacheHelper();
     }
 
     public static OpenSearchMultiReader getOpenSearchMultiDirectoryReader(MultiReader reader) throws IOException {

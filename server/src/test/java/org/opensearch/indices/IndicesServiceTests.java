@@ -31,7 +31,6 @@
 
 package org.opensearch.indices;
 
-import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.search.similarities.Similarity;
@@ -689,7 +688,7 @@ public class IndicesServiceTests extends OpenSearchSingleNodeTestCase {
         ContextIndexSearcher searcher = mock(ContextIndexSearcher.class);
         context.setSearcher(searcher);
         OpenSearchMultiReader reader = mock(OpenSearchMultiReader.class);
-        when(searcher.getDirectoryReader()).thenReturn(reader);
+        when(searcher.getMultiReader()).thenReturn(reader);
         when(searcher.getIndexReader()).thenReturn(reader);
         when(reader.getReaderCacheHelper()).thenReturn(cacheHelper);
     }

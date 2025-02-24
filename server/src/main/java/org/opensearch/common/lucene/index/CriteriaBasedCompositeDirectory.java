@@ -31,6 +31,11 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
 
+/**
+ * CriteriaBasedCompositeDirectory
+ *
+ * @opensearch.api
+ */
 public class CriteriaBasedCompositeDirectory extends FilterDirectory {
 
     private final Map<String, Directory> criteriaDirectoryMapping;
