@@ -10,7 +10,6 @@ package org.opensearch.index.engine;
 
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexCommit;
-import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LiveIndexWriterConfig;
 import org.apache.lucene.index.SegmentCommitInfo;
@@ -52,10 +51,13 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
     private long generation;
     private final Map<Long, String> childLevelGenerationListMap = new HashMap<>();
 
-    public ContextAwareIndexWriterReadOnlyCombinedView(final Map<String, OpenSearchConcurrentMergeScheduler> mergeSchedulerCriteriaMap,
-                                                       final Map<String, CombinedDeletionPolicy> childLevelCombinedDeletionPolicyMap,
-                                                       final Map<String, IndexWriter> criteriaBasedIndexWriters,
-                                                       final Directory directory, final ShardId shardId) throws IOException {
+    public ContextAwareIndexWriterReadOnlyCombinedView(
+        final Map<String, OpenSearchConcurrentMergeScheduler> mergeSchedulerCriteriaMap,
+        final Map<String, CombinedDeletionPolicy> childLevelCombinedDeletionPolicyMap,
+        final Map<String, IndexWriter> criteriaBasedIndexWriters,
+        final Directory directory,
+        final ShardId shardId
+    ) throws IOException {
         this.mergeSchedulerCriteriaMap = mergeSchedulerCriteriaMap;
         this.childLevelCombinedDeletionPolicyMap = childLevelCombinedDeletionPolicyMap;
         this.criteriaBasedIndexWriters = criteriaBasedIndexWriters;
@@ -64,12 +66,11 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
         this.shardId = shardId;
         this.generation = 0;
         populateChildLevelGenerationMap();
-        for (IndexWriter writer: criteriaBasedIndexWriters.values()) {
+        for (IndexWriter writer : criteriaBasedIndexWriters.values()) {
             this.indexWriterConfig = writer.getConfig();
             break;
         }
     }
-
 
     // For read only engine.
     public ContextAwareIndexWriterReadOnlyCombinedView(final Directory directory, ShardId shardId) throws IOException {
@@ -84,11 +85,11 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
         populateChildLevelGenerationMap();
     }
 
-    //This should be synchronised??
+    // This should be synchronised??
     private void populateChildLevelGenerationMap() throws IOException {
         ++generation;
         final StringBuilder generationString = new StringBuilder();
-        for (Directory directory: directory.getChildDirectoryList()) {
+        for (Directory directory : directory.getChildDirectoryList()) {
             generationString.append(Lucene.readSegmentInfos(directory).getGeneration()).append(",");
         }
 
@@ -101,7 +102,7 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
 
     public OpenSearchMultiReader openMultiReader() throws IOException {
         final Map<String, DirectoryReader> readerCriteriaMap = new HashMap<>();
-        for (String criteria: criteriaList) {
+        for (String criteria : criteriaList) {
             final OpenSearchDirectoryReader directoryReader = OpenSearchDirectoryReader.wrap(
                 DirectoryReader.open(criteriaBasedIndexWriters.get(criteria)),
                 shardId
@@ -125,35 +126,23 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
         Map<String, Long> lastGenerationList = new HashMap<>();
         String[] generationList = childLevelGenerationListMap.get(generation).split(",");
         int i = 0;
-        for (String criteria: criteriaList) {
+        for (String criteria : criteriaList) {
             lastGenerationList.put(criteria, Long.parseLong(generationList[i++]));
         }
 
         return lastGenerationList;
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-    private static SegmentInfos combineSegmentInfos(Map<String, IndexWriter> criteriaBasedIndexWriters, Directory directory) throws IOException {
+    private static SegmentInfos combineSegmentInfos(Map<String, IndexWriter> criteriaBasedIndexWriters, Directory directory)
+        throws IOException {
         final SegmentInfos sis = new SegmentInfos(org.apache.lucene.util.Version.LATEST.major);
         List<SegmentCommitInfo> infos = new ArrayList<>();
 
-        for (Map.Entry<String, IndexWriter> entry: criteriaBasedIndexWriters.entrySet()) {
+        for (Map.Entry<String, IndexWriter> entry : criteriaBasedIndexWriters.entrySet()) {
             IndexWriter currentWriter = entry.getValue();
-            try(StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(currentWriter)) {
+            try (StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(currentWriter)) {
                 SegmentInfos currentInfos = r1.getSegmentInfos();
-//                currentWriter.incRefDeleter(currentInfos);
+                // currentWriter.incRefDeleter(currentInfos);
                 for (SegmentCommitInfo info : currentInfos) {
                     String newSegName = entry.getKey() + "$" + info.info.name;
                     infos.add(Lucene.copySegmentAsIs(info, newSegName, directory));
@@ -168,26 +157,21 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
         return sis;
     }
 
-    public void rollback() {
-        for (IndexWriter indexWriter: criteriaBasedIndexWriters.values()) {
-            try {
-                indexWriter.rollback();
-            } catch (IOException inner) { // iw is closed below
-
-            }
+    public void rollback() throws IOException {
+        for (IndexWriter indexWriter : criteriaBasedIndexWriters.values()) {
+            indexWriter.rollback();
         }
     }
 
-
     @Override
     public void close() throws IOException {
-        for (IndexWriter indexWriter: criteriaBasedIndexWriters.values()) {
+        for (IndexWriter indexWriter : criteriaBasedIndexWriters.values()) {
             indexWriter.close();
         }
     }
 
     public boolean hasSnapshottedCommits() {
-        for (CombinedDeletionPolicy combinedDeletionPolicy: childLevelCombinedDeletionPolicyMap.values()) {
+        for (CombinedDeletionPolicy combinedDeletionPolicy : childLevelCombinedDeletionPolicyMap.values()) {
             if (combinedDeletionPolicy.hasSnapshottedCommits()) {
                 return true;
             }
@@ -198,7 +182,7 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
 
     public long getFlushingBytes() {
         long flushingBytes = 0;
-        for (IndexWriter indexWriter: criteriaBasedIndexWriters.values()) {
+        for (IndexWriter indexWriter : criteriaBasedIndexWriters.values()) {
             flushingBytes += indexWriter.getFlushingBytes();
         }
 
@@ -206,7 +190,7 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
     }
 
     public Throwable getTragicException() {
-        for (IndexWriter indexWriter: criteriaBasedIndexWriters.values()) {
+        for (IndexWriter indexWriter : criteriaBasedIndexWriters.values()) {
             if (indexWriter.getTragicException() != null) {
                 return indexWriter.getTragicException();
             }
@@ -217,7 +201,7 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
 
     public long getPendingNumDocs() {
         long pendingNumDocsCount = 0;
-        for (IndexWriter indexWriter: criteriaBasedIndexWriters.values()) {
+        for (IndexWriter indexWriter : criteriaBasedIndexWriters.values()) {
             pendingNumDocsCount += indexWriter.getPendingNumDocs();
         }
 
@@ -230,20 +214,20 @@ public class ContextAwareIndexWriterReadOnlyCombinedView implements Closeable {
 
     public long ramBytesUsed() {
         long ramBytesUsed = 0;
-        for (IndexWriter indexWriter: criteriaBasedIndexWriters.values()) {
+        for (IndexWriter indexWriter : criteriaBasedIndexWriters.values()) {
             ramBytesUsed += indexWriter.ramBytesUsed();
         }
 
         return ramBytesUsed;
     }
 
-    //    public IndexCommit acquireIndexCommit() {
-//
-//    }
+    // public IndexCommit acquireIndexCommit() {
+    //
+    // }
 
     private List<IndexCommit> getLastIndexCommits(boolean acquireSafeCommit) throws IOException {
         final List<IndexCommit> indexCommits = new ArrayList<>();
-        for (Map.Entry<String, CombinedDeletionPolicy> entry: childLevelCombinedDeletionPolicyMap.entrySet()) {
+        for (Map.Entry<String, CombinedDeletionPolicy> entry : childLevelCombinedDeletionPolicyMap.entrySet()) {
             CombinedDeletionPolicy combinedDeletionPolicy = entry.getValue();
             final IndexCommit lastCommit = combinedDeletionPolicy.acquireIndexCommit(acquireSafeCommit);
             indexCommits.add(lastCommit);

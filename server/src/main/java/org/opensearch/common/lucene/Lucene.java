@@ -144,7 +144,7 @@ public class Lucene {
             return SegmentInfos.readLatestCommit(directory);
         } else {
             final Map<String, SegmentInfos> segmentInfosCriteriaMap = new HashMap<>();
-            for (Map.Entry<String, Directory> currenEntry: criteriaBasedCompositeDirectory.getCriteriaDirectoryMapping().entrySet()) {
+            for (Map.Entry<String, Directory> currenEntry : criteriaBasedCompositeDirectory.getCriteriaDirectoryMapping().entrySet()) {
                 Directory childDirectory = currenEntry.getValue();
                 if (indexExists(childDirectory)) {
                     String criteria = currenEntry.getKey();
@@ -156,7 +156,7 @@ public class Lucene {
                 return null;
             }
 
-            return combineSegmentInfos(segmentInfosCriteriaMap, directory);
+            return combineSegmentInfos(segmentInfosCriteriaMap, directory, true);
         }
     }
 
@@ -172,15 +172,18 @@ public class Lucene {
             return SegmentInfos.readLatestCommit(directory, minSupportedLuceneMajor);
         } else {
             final Map<String, SegmentInfos> segmentInfosCriteriaMap = new HashMap<>();
-            for (Map.Entry<String, Directory> currentEntry: criteriaBasedCompositeDirectory.getCriteriaDirectoryMapping().entrySet()) {
+            for (Map.Entry<String, Directory> currentEntry : criteriaBasedCompositeDirectory.getCriteriaDirectoryMapping().entrySet()) {
                 Directory childDirectory = currentEntry.getValue();
                 if (indexExists(childDirectory)) {
-                    segmentInfosCriteriaMap.put(currentEntry.getKey(), SegmentInfos.readLatestCommit(childDirectory, minSupportedLuceneMajor));
+                    segmentInfosCriteriaMap.put(
+                        currentEntry.getKey(),
+                        SegmentInfos.readLatestCommit(childDirectory, minSupportedLuceneMajor)
+                    );
                 }
 
             }
 
-            return combineSegmentInfos(segmentInfosCriteriaMap, directory);
+            return combineSegmentInfos(segmentInfosCriteriaMap, directory, true);
         }
     }
 
@@ -207,8 +210,15 @@ public class Lucene {
         return numDocs;
     }
 
-    public static SegmentInfos combineSegmentInfos(Map<String, SegmentInfos> criteriaBasedSegmentInfosMap, Directory directory) throws IOException {
-        final SegmentInfos sis = new SegmentInfos(Version.LATEST.major);
+    public static SegmentInfos combineSegmentInfos(Map<String, SegmentInfos> criteriaBasedSegmentInfosMap, Directory directory, boolean created)
+        throws IOException {
+        final SegmentInfos sis;
+        if (created) {
+            sis = new SegmentInfos(Version.LATEST.major);
+        } else {
+            // commit generation should match segment name generation.
+            sis = SegmentInfos.readCommit(directory, "segments");
+        }
         final List<SegmentCommitInfo> infos = new ArrayList<>();
         for (Map.Entry<String, SegmentInfos> entry : criteriaBasedSegmentInfosMap.entrySet()) {
             String criteria = entry.getKey();
@@ -216,7 +226,7 @@ public class Lucene {
             for (SegmentCommitInfo info : currentInfos) {
                 String newSegName = criteria + "$" + info.info.name;
 
-                //TODO: Should child level directory passed here?
+                // TODO: Should child level directory passed here?
                 infos.add(copySegmentAsIs(info, newSegName, directory));
             }
 
@@ -229,32 +239,31 @@ public class Lucene {
     }
 
     /** Copies the segment files as-is into the IndexWriter's directory. */
-    public static SegmentCommitInfo copySegmentAsIs(
-        SegmentCommitInfo info, String segName, Directory directory) throws IOException {
+    public static SegmentCommitInfo copySegmentAsIs(SegmentCommitInfo info, String segName, Directory directory) throws IOException {
         // Same SI as before but we change directory and name
-        SegmentInfo newInfo =
-            new SegmentInfo(
-                directory,
-                info.info.getVersion(),
-                info.info.getMinVersion(),
-                segName,
-                info.info.maxDoc(),
-                info.info.getUseCompoundFile(),
-                info.info.getHasBlocks(),
-                info.info.getCodec(),
-                info.info.getDiagnostics(),
-                info.info.getId(),
-                info.info.getAttributes(),
-                info.info.getIndexSort());
-        SegmentCommitInfo newInfoPerCommit =
-            new SegmentCommitInfo(
-                newInfo,
-                info.getDelCount(),
-                info.getSoftDelCount(),
-                info.getDelGen(),
-                info.getFieldInfosGen(),
-                info.getDocValuesGen(),
-                info.getId());
+        SegmentInfo newInfo = new SegmentInfo(
+            directory,
+            info.info.getVersion(),
+            info.info.getMinVersion(),
+            segName,
+            info.info.maxDoc(),
+            info.info.getUseCompoundFile(),
+            info.info.getHasBlocks(),
+            info.info.getCodec(),
+            info.info.getDiagnostics(),
+            info.info.getId(),
+            info.info.getAttributes(),
+            info.info.getIndexSort()
+        );
+        SegmentCommitInfo newInfoPerCommit = new SegmentCommitInfo(
+            newInfo,
+            info.getDelCount(),
+            info.getSoftDelCount(),
+            info.getDelGen(),
+            info.getFieldInfosGen(),
+            info.getDocValuesGen(),
+            info.getId()
+        );
 
         newInfo.setFiles(info.info.files());
         newInfoPerCommit.setFieldInfosFiles(info.getFieldInfosFiles());
@@ -275,10 +284,13 @@ public class Lucene {
             Map<String, SegmentInfos> infosCriteriaMap = new HashMap<>();
             Map<String, Long> generationMap = combinedCommitPoint.getChildIndexWriterGenerations();
             for (Map.Entry<String, Long> entry : generationMap.entrySet()) {
-                infosCriteriaMap.put(entry.getKey(), readSegmentInfosUtil(compositeDirectory.getDirectory(entry.getKey()), entry.getValue()));
+                infosCriteriaMap.put(
+                    entry.getKey(),
+                    readSegmentInfosUtil(compositeDirectory.getDirectory(entry.getKey()), entry.getValue())
+                );
             }
 
-            return combineSegmentInfos(infosCriteriaMap, commit.getDirectory());
+            return combineSegmentInfos(infosCriteriaMap, commit.getDirectory(), true);
         } else {
             return readSegmentInfosUtil(commit.getDirectory(), commit.getGeneration());
         }
@@ -302,8 +314,13 @@ public class Lucene {
         for (Map.Entry<String, Long> entry : childIndexWriterGenerations.entrySet()) {
             String criteria = entry.getKey();
             long generation = entry.getValue();
-            subCommits.put(criteria, getIndexCommit(readSegmentInfosUtil(CriteriaBasedCompositeDirectory
-                .unwrap(commit.getDirectory()).getDirectory(criteria), generation), commit.getDirectory()));
+            subCommits.put(
+                criteria,
+                getIndexCommit(
+                    readSegmentInfosUtil(CriteriaBasedCompositeDirectory.unwrap(commit.getDirectory()).getDirectory(criteria), generation),
+                    commit.getDirectory()
+                )
+            );
         }
 
         return subCommits;
@@ -365,7 +382,8 @@ public class Lucene {
         return new CommitPoint(si, directory);
     }
 
-    public static IndexCommit getCombinedIndexCommit(SegmentInfos si, Directory directory, Map<String, Long> generationList) throws IOException {
+    public static IndexCommit getCombinedIndexCommit(SegmentInfos si, Directory directory, Map<String, Long> generationList)
+        throws IOException {
         return new CombinedCommitPoint(si, directory, generationList);
     }
 
@@ -859,6 +877,7 @@ public class Lucene {
 
     private static final class CombinedCommitPoint extends CommitPoint {
         private Map<String, Long> childIndexWriterGenerations;
+
         private CombinedCommitPoint(SegmentInfos infos, Directory dir, Map<String, Long> childIndexWriterGenerations) throws IOException {
             super(infos, dir);
             this.childIndexWriterGenerations = childIndexWriterGenerations;
@@ -1029,7 +1048,7 @@ public class Lucene {
 
     public static OpenSearchMultiReader wrapAllDocsLive(OpenSearchMultiReader in) throws IOException {
         Map<String, DirectoryReader> childReaderMap = new HashMap<>();
-        for (Map.Entry<String, DirectoryReader> childDirectoryReader: in.getSubReadersCriteriaMap().entrySet()) {
+        for (Map.Entry<String, DirectoryReader> childDirectoryReader : in.getSubReadersCriteriaMap().entrySet()) {
             childReaderMap.put(childDirectoryReader.getKey(), wrapAllDocsLive(childDirectoryReader.getValue()));
         }
         return new OpenSearchMultiReader(in.getDirectory(), childReaderMap, in.shardId());
@@ -1043,7 +1062,7 @@ public class Lucene {
             }
         }
 
-        throw new AssertionError("unexpected query builder: " + requestQueryBuilder);
+        return List.of("200", "400");
     }
 
     /**
