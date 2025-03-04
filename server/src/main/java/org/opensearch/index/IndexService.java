@@ -661,22 +661,14 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
 
             Map<String, Directory> criteriaDirectoryMapping = new HashMap<>();
             if (this.indexSettings.isContextAwareEnabled()) {
-                criteriaDirectoryMapping.put(
-                    "200",
-                    directoryFactory.newFSDirectory(
-                        path.resolveIndex().resolve("200"),
+                for (int tenantId = 1; tenantId <= this.indexSettings.getTotalTenants(); tenantId++) {
+                    final String tenantString = String.valueOf(tenantId);
+                    criteriaDirectoryMapping.put(tenantString, directoryFactory.newFSDirectory(
+                        path.resolveIndex().resolve(tenantString),
                         this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING),
                         this.indexSettings
-                    )
-                );
-                criteriaDirectoryMapping.put(
-                    "400",
-                    directoryFactory.newFSDirectory(
-                        path.resolveIndex().resolve("400"),
-                        this.indexSettings.getValue(INDEX_LOCK_FACTOR_SETTING),
-                        this.indexSettings
-                    )
-                );
+                    ));
+                }
             } else {
                 criteriaDirectoryMapping.put(
                     "-1",

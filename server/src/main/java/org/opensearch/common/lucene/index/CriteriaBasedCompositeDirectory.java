@@ -116,7 +116,7 @@ public class CriteriaBasedCompositeDirectory extends FilterDirectory {
         );
 
         // Flatten this for recovery and other flows.
-        for (Map.Entry<String, Directory> filterDirectoryEntry: criteriaDirectoryMapping.entrySet()) {
+        for (Map.Entry<String, Directory> filterDirectoryEntry : criteriaDirectoryMapping.entrySet()) {
             String prefix = filterDirectoryEntry.getKey();
             Directory filterDirectory = filterDirectoryEntry.getValue();
             for (String fileName : filterDirectory.listAll()) {
@@ -145,7 +145,8 @@ public class CriteriaBasedCompositeDirectory extends FilterDirectory {
             String criteria = name.split("\\$")[0];
             return getDirectory(criteria).openChecksumInput(name.replace(criteria + "$", ""));
         } else if (name.contains("segments")) {
-            // Irrespective of whichever segment_N file we are trying to read the data, we read it from memory buffer. This is assuming we always operate on last IndexCommit.
+            // Irrespective of whichever segment_N file we are trying to read the data, we read it from memory buffer. This is assuming we
+            // always operate on last IndexCommit.
             return new BufferedChecksumIndexInput(openInput(name, IOContext.READONCE));
         } else {
             return multiTenantDirectory.openChecksumInput(name);
@@ -155,7 +156,9 @@ public class CriteriaBasedCompositeDirectory extends FilterDirectory {
     @Override
     public void sync(Collection<String> names) throws IOException {
         // segment_N is in memory.
-        multiTenantDirectory.sync(names.stream().filter(name -> !(name.contains(segment_N_name) && name.contains("segments"))).collect(Collectors.toSet()));
+        multiTenantDirectory.sync(
+            names.stream().filter(name -> !(name.contains(segment_N_name) && name.contains("segments"))).collect(Collectors.toSet())
+        );
     }
 
     // TODO: Select on the basis of filter name.
@@ -169,7 +172,8 @@ public class CriteriaBasedCompositeDirectory extends FilterDirectory {
 
             return getDirectory(criteria).openInput(name.replace(criteria + "$", ""), context);
         } else if (name.contains("segments")) {
-            // Irrespective of whichever segment_N file we are trying to read the data, we read it from memory buffer. This is assuming we always operate on last IndexCommit.
+            // Irrespective of whichever segment_N file we are trying to read the data, we read it from memory buffer. This is assuming we
+            // always operate on last IndexCommit.
             return new ByteBuffersIndexInput((ByteBuffersDataInput) currentSegmentInfos.clone(), name);
         } else {
             return multiTenantDirectory.openInput(name, context);

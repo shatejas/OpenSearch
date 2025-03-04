@@ -1793,13 +1793,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
     public void createEmpty(Version luceneVersion, String translogUUID) throws IOException {
         metadataLock.writeLock().lock();
         IndexWriter writer = null;
-        IndexWriter w2 = null, w4 = null;
-        if (indexSettings.isContextAwareEnabled()) {
-            w2 = newEmptyIndexWriter(directoryMapping.get("200"), luceneVersion);
-            w4 = newEmptyIndexWriter(directoryMapping.get("400"), luceneVersion);
-        } else {
-            writer = newEmptyIndexWriter(directoryMapping.get("-1"), luceneVersion);
-        }
+        final List<IndexWriter> criteriaBasedIndexWriters = new ArrayList<>();
         try {
             final Map<String, String> map = new HashMap<>();
             if (translogUUID != null) {
@@ -1810,18 +1804,26 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             map.put(SequenceNumbers.MAX_SEQ_NO, Long.toString(SequenceNumbers.NO_OPS_PERFORMED));
             map.put(Engine.MAX_UNSAFE_AUTO_ID_TIMESTAMP_COMMIT_ID, "-1");
             if (indexSettings.isContextAwareEnabled()) {
-                updateCommitData(w2, map);
-                updateCommitData(w4, map);
-                try (
-                    StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(w2);
-                    StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(w4)
-                ) {
-                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
-                    segmentsCriteriaMap.put("200", r1.getSegmentInfos());
-                    segmentsCriteriaMap.put("400", r2.getSegmentInfos());
+                Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                List<StandardDirectoryReader> standardDirectoryReaders = new ArrayList<>();
+                try {
+                    for (int tenantId = 1; tenantId <= indexSettings.getTotalTenants(); tenantId++) {
+                        String tenantString = String.valueOf(tenantId);
+                        IndexWriter iw = newEmptyIndexWriter(directoryMapping.get(tenantString), luceneVersion);
+                        criteriaBasedIndexWriters.add(iw);
+                        updateCommitData(iw, map);
+                        StandardDirectoryReader reader = (StandardDirectoryReader) StandardDirectoryReader.open(iw);
+                        standardDirectoryReaders.add(reader);
+                        segmentsCriteriaMap.put(tenantString, reader.getSegmentInfos());
+                    }
                     Lucene.combineSegmentInfos(segmentsCriteriaMap, directory(), true).commit(directory);
+                } finally {
+                    for (StandardDirectoryReader reader : standardDirectoryReaders) {
+                        reader.close();
+                    }
                 }
             } else {
+                writer = newEmptyIndexWriter(directoryMapping.get("-1"), luceneVersion);
                 updateCommitData(writer, map);
                 try (StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(writer)) {
                     Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
@@ -1833,11 +1835,9 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             if (writer != null) {
                 writer.close();
             }
-            if (w2 != null) {
-                w2.close();
-            }
-            if (w4 != null) {
-                w4.close();
+
+            for (IndexWriter iw : criteriaBasedIndexWriters) {
+                iw.close();
             }
 
             SegmentInfos combinedSegmentInfos = Lucene.readSegmentInfos(directory);
@@ -1881,13 +1881,7 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
     public void bootstrapNewHistory(long localCheckpoint, long maxSeqNo) throws IOException {
         metadataLock.writeLock().lock();
         IndexWriter writer = null;
-        IndexWriter w2 = null, w4 = null;
-        if (indexSettings.isContextAwareEnabled()) {
-            w2 = newAppendingIndexWriter(directoryMapping.get("200"), null);
-            w4 = newAppendingIndexWriter(directoryMapping.get("400"), null);
-        } else {
-            writer = newAppendingIndexWriter(directoryMapping.get("-1"), null);
-        }
+        final List<IndexWriter> criteriaBasedIndexWriters = new ArrayList<>();
 
         try {
             final Map<String, String> map = new HashMap<>();
@@ -1895,18 +1889,26 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             map.put(SequenceNumbers.LOCAL_CHECKPOINT_KEY, Long.toString(localCheckpoint));
             map.put(SequenceNumbers.MAX_SEQ_NO, Long.toString(maxSeqNo));
             if (indexSettings.isContextAwareEnabled()) {
-                updateCommitData(w2, map);
-                updateCommitData(w4, map);
-                try (
-                    StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(w2);
-                    StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(w4)
-                ) {
-                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
-                    segmentsCriteriaMap.put("200", r1.getSegmentInfos());
-                    segmentsCriteriaMap.put("400", r2.getSegmentInfos());
+                Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                List<StandardDirectoryReader> standardDirectoryReaders = new ArrayList<>();
+                try {
+                    for (int tenantId = 1; tenantId <= indexSettings.getTotalTenants(); tenantId++) {
+                        String tenantString = String.valueOf(tenantId);
+                        IndexWriter iw = newAppendingIndexWriter(directoryMapping.get(tenantString), null);
+                        criteriaBasedIndexWriters.add(iw);
+                        updateCommitData(iw, map);
+                        StandardDirectoryReader reader = (StandardDirectoryReader) StandardDirectoryReader.open(iw);
+                        standardDirectoryReaders.add(reader);
+                        segmentsCriteriaMap.put(tenantString, reader.getSegmentInfos());
+                    }
                     Lucene.combineSegmentInfos(segmentsCriteriaMap, directory(), true).commit(directory);
+                } finally {
+                    for (StandardDirectoryReader reader : standardDirectoryReaders) {
+                        reader.close();
+                    }
                 }
             } else {
+                writer = newAppendingIndexWriter(directoryMapping.get("-1"), null);
                 updateCommitData(writer, map);
                 try (StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(writer)) {
                     Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
@@ -1918,11 +1920,8 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             if (writer != null) {
                 writer.close();
             }
-            if (w2 != null) {
-                w2.close();
-            }
-            if (w4 != null) {
-                w4.close();
+            for (IndexWriter iw : criteriaBasedIndexWriters) {
+                iw.close();
             }
 
             metadataLock.writeLock().unlock();
@@ -1937,34 +1936,37 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
     public void associateIndexWithNewTranslog(final String translogUUID) throws IOException {
         metadataLock.writeLock().lock();
         IndexWriter writer = null;
-        IndexWriter w2 = null, w4 = null, defWriter = null;
-        if (indexSettings.isContextAwareEnabled()) {
-            w2 = newAppendingIndexWriter(directoryMapping.get("200"), null);
-            w4 = newAppendingIndexWriter(directoryMapping.get("400"), null);
-            defWriter = w2;
-        } else {
-            writer = newAppendingIndexWriter(directoryMapping.get("-1"), null);
-            defWriter = writer;
-        }
-        try {
-            if (translogUUID.equals(getUserData(defWriter).get(Translog.TRANSLOG_UUID_KEY))) {
-                throw new IllegalArgumentException("a new translog uuid can't be equal to existing one. got [" + translogUUID + "]");
-            }
+        final List<IndexWriter> criteriaBasedIndexWriters = new ArrayList<>();
 
+        try {
             if (indexSettings.isContextAwareEnabled()) {
-                updateCommitData(w2, Collections.singletonMap(Translog.TRANSLOG_UUID_KEY, translogUUID));
-                updateCommitData(w4, Collections.singletonMap(Translog.TRANSLOG_UUID_KEY, translogUUID));
-                try (
-                    StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(w2);
-                    StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(w4)
-                ) {
-                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
-                    segmentsCriteriaMap.put("200", r1.getSegmentInfos());
-                    segmentsCriteriaMap.put("400", r2.getSegmentInfos());
+                Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                List<StandardDirectoryReader> standardDirectoryReaders = new ArrayList<>();
+                try {
+                    for (int tenantId = 1; tenantId <= indexSettings.getTotalTenants(); tenantId++) {
+                        String tenantString = String.valueOf(tenantId);
+                        IndexWriter iw = newAppendingIndexWriter(directoryMapping.get(tenantString), null);
+                        if (translogUUID.equals(getUserData(iw).get(Translog.TRANSLOG_UUID_KEY))) {
+                            throw new IllegalArgumentException("a new translog uuid can't be equal to existing one. got [" + translogUUID + "]");
+                        }
+                        criteriaBasedIndexWriters.add(iw);
+                        updateCommitData(iw, Collections.singletonMap(Translog.TRANSLOG_UUID_KEY, translogUUID));
+                        StandardDirectoryReader reader = (StandardDirectoryReader) StandardDirectoryReader.open(iw);
+                        standardDirectoryReaders.add(reader);
+                        segmentsCriteriaMap.put(tenantString, reader.getSegmentInfos());
+                    }
                     Lucene.combineSegmentInfos(segmentsCriteriaMap, directory(), true).commit(directory);
+                } finally {
+                    for (StandardDirectoryReader reader : standardDirectoryReaders) {
+                        reader.close();
+                    }
+                }
+            } else {
+                writer = newAppendingIndexWriter(directoryMapping.get("-1"), null);
+                if (translogUUID.equals(getUserData(writer).get(Translog.TRANSLOG_UUID_KEY))) {
+                    throw new IllegalArgumentException("a new translog uuid can't be equal to existing one. got [" + translogUUID + "]");
                 }
 
-            } else {
                 updateCommitData(writer, Collections.singletonMap(Translog.TRANSLOG_UUID_KEY, translogUUID));
                 try (StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(writer)) {
                     Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
@@ -1976,11 +1978,8 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             if (writer != null) {
                 writer.close();
             }
-            if (w2 != null) {
-                w2.close();
-            }
-            if (w4 != null) {
-                w4.close();
+            for (IndexWriter iw : criteriaBasedIndexWriters) {
+                iw.close();
             }
 
             metadataLock.writeLock().unlock();
@@ -1993,32 +1992,40 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
     public void ensureIndexHasHistoryUUID() throws IOException {
         metadataLock.writeLock().lock();
         IndexWriter writer = null;
-        IndexWriter w2 = null, w4 = null;
+        final List<IndexWriter> criteriaBasedIndexWriters = new ArrayList<>();
         if (indexSettings.isContextAwareEnabled()) {
-            w2 = newAppendingIndexWriter(directoryMapping.get("200"), null);
-            w4 = newAppendingIndexWriter(directoryMapping.get("400"), null);
+            for (int tenantId = 1; tenantId <= indexSettings.getTotalTenants(); tenantId++) {
+                String tenantString = String.valueOf(tenantId);
+                IndexWriter iw = newAppendingIndexWriter(directoryMapping.get(tenantString), null);
+                criteriaBasedIndexWriters.add(iw);
+            }
         } else {
             writer = newAppendingIndexWriter(directoryMapping.get("-1"), null);
         }
         try {
             Map<String, String> userData = null;
             if (indexSettings.isContextAwareEnabled()) {
-                userData = getUserData(w2);
+                userData = getUserData(criteriaBasedIndexWriters.get(0));
             } else {
                 userData = getUserData(writer);
             }
             if (userData.containsKey(Engine.HISTORY_UUID_KEY) == false) {
                 if (indexSettings.isContextAwareEnabled()) {
-                    updateCommitData(w2, Collections.singletonMap(Engine.HISTORY_UUID_KEY, UUIDs.randomBase64UUID()));
-                    updateCommitData(w4, Collections.singletonMap(Engine.HISTORY_UUID_KEY, UUIDs.randomBase64UUID()));
-                    try (
-                        StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(w2);
-                        StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(w4)
-                    ) {
-                        Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
-                        segmentsCriteriaMap.put("200", r1.getSegmentInfos());
-                        segmentsCriteriaMap.put("400", r2.getSegmentInfos());
+                    Map<String, SegmentInfos> segmentsCriteriaMap = new HashMap<>();
+                    List<StandardDirectoryReader> standardDirectoryReaders = new ArrayList<>();
+                    try {
+                        for (int tenantId = 1; tenantId <= indexSettings.getTotalTenants(); tenantId++) {
+                            String tenantString = String.valueOf(tenantId);
+                            IndexWriter iw = criteriaBasedIndexWriters.get(tenantId - 1);
+                            StandardDirectoryReader reader = (StandardDirectoryReader) StandardDirectoryReader.open(iw);
+                            standardDirectoryReaders.add(reader);
+                            segmentsCriteriaMap.put(tenantString, reader.getSegmentInfos());
+                        }
                         Lucene.combineSegmentInfos(segmentsCriteriaMap, directory(), true).commit(directory);
+                    } finally {
+                        for (StandardDirectoryReader reader : standardDirectoryReaders) {
+                            reader.close();
+                        }
                     }
                 } else {
                     updateCommitData(writer, Collections.singletonMap(Engine.HISTORY_UUID_KEY, UUIDs.randomBase64UUID()));
@@ -2034,11 +2041,8 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
             if (writer != null) {
                 writer.close();
             }
-            if (w2 != null) {
-                w2.close();
-            }
-            if (w4 != null) {
-                w4.close();
+            for (IndexWriter iw : criteriaBasedIndexWriters) {
+                iw.close();
             }
 
             metadataLock.writeLock().unlock();

@@ -119,16 +119,17 @@ public class IngestionEngine extends Engine {
             IndexMetadata indexMetadata = engineConfig.getIndexSettings().getIndexMetadata();
             assert indexMetadata != null;
             if (engineConfig.isContextAwareEnabled()) {
-                mergeSchedulerCriteriaMap.put(
-                    "200",
-                    new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings(), "200")
-                );
-                mergeSchedulerCriteriaMap.put(
-                    "400",
-                    new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings(), "400")
-                );
-                criteriaBasedIndexWriters.put("200", createWriter(store.getDirectoryMapping().get("200"), getIndexWriterConfig("200")));
-                criteriaBasedIndexWriters.put("400", createWriter(store.getDirectoryMapping().get("400"), getIndexWriterConfig("400")));
+                for (int tenantId = 1; tenantId <= engineConfig.getTotalTenants(); tenantId++) {
+                    String tenantString = String.valueOf(tenantId);
+                    mergeSchedulerCriteriaMap.put(
+                        tenantString,
+                        new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings(), tenantString)
+                    );
+                    criteriaBasedIndexWriters.put(
+                        tenantString,
+                        createWriter(store.getDirectoryMapping().get(tenantString), getIndexWriterConfig(tenantString))
+                    );
+                }
             } else {
                 mergeSchedulerCriteriaMap.put(
                     "-1",

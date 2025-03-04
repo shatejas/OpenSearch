@@ -152,9 +152,10 @@ public class NRTReplicationEngine extends Engine {
     private NRTReplicationReaderManager buildReaderManager() throws IOException {
         final Map<String, DirectoryReader> directoryReaderMap = new HashMap();
         if (config().isContextAwareEnabled()) {
-            directoryReaderMap.put("200", getDirectoryReader(store.getDirectoryMapping().get("200")));
-            directoryReaderMap.put("400", getDirectoryReader(store.getDirectoryMapping().get("400")));
-
+            for (int tenantId = 1; tenantId <= engineConfig.getTotalTenants(); tenantId++) {
+                final String tenantString = String.valueOf(tenantId);
+                directoryReaderMap.put(tenantString, getDirectoryReader(store.getDirectoryMapping().get(tenantString)));
+            }
             return new NRTReplicationReaderManager(
                 new OpenSearchMultiReader(store.directory(), directoryReaderMap, shardId),
                 replicaFileTracker::incRef,

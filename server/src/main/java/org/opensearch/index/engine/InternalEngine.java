@@ -257,22 +257,6 @@ public class InternalEngine extends Engine {
         boolean success = false;
         try {
             this.lastDeleteVersionPruneTimeMSec = engineConfig.getThreadPool().relativeTimeInMillis();
-            if (engineConfig.isContextAwareEnabled()) {
-                mergeSchedulerCriteriaMap.put(
-                    "200",
-                    new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings(), "200")
-                );
-                mergeSchedulerCriteriaMap.put(
-                    "400",
-                    new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings(), "400")
-                );
-            } else {
-                mergeSchedulerCriteriaMap.put(
-                    "-1",
-                    new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings(), "-1")
-                );
-            }
-
             throttle = new IndexThrottle();
             try {
                 store.trimUnsafeCommits(engineConfig.getTranslogConfig().getTranslogPath());
@@ -318,42 +302,49 @@ public class InternalEngine extends Engine {
                 this.localCheckpointTracker = createLocalCheckpointTracker(localCheckpointTrackerSupplier);
 
                 if (engineConfig.isContextAwareEnabled()) {
-                    childLevelCombinedDeletionPolicyMap.put(
-                        "200",
-                        new CombinedDeletionPolicy(
-                            logger,
-                            translogDeletionPolicy,
-                            softDeletesPolicy,
-                            translogManager::getLastSyncedGlobalCheckpoint
-                        )
-                    );
-                    childLevelCombinedDeletionPolicyMap.put(
-                        "400",
-                        new CombinedDeletionPolicy(
-                            logger,
-                            translogDeletionPolicy,
-                            softDeletesPolicy,
-                            translogManager::getLastSyncedGlobalCheckpoint
-                        )
-                    );
-
-                    criteriaBasedIndexWriters.put("200", createWriter(store.getDirectoryMapping().get("200"), getIndexWriterConfig("200")));
-                    criteriaBasedIndexWriters.put("400", createWriter(store.getDirectoryMapping().get("400"), getIndexWriterConfig("400")));
-
-                    try (
-                        StandardDirectoryReader r1 = (StandardDirectoryReader) StandardDirectoryReader.open(
-                            criteriaBasedIndexWriters.get("200")
+                    for (int tenantId = 1; tenantId <= engineConfig.getTotalTenants(); tenantId++) {
+                        String tenantString = String.valueOf(tenantId);
+                        mergeSchedulerCriteriaMap.put(
+                            tenantString,
+                            new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings(), tenantString)
                         );
-                        StandardDirectoryReader r2 = (StandardDirectoryReader) StandardDirectoryReader.open(
-                            criteriaBasedIndexWriters.get("400")
-                        )
-                    ) {
-                        Map<String, SegmentInfos> segmentInfosCriteriaMap = new HashMap<>();
-                        segmentInfosCriteriaMap.put("200", r1.getSegmentInfos());
-                        segmentInfosCriteriaMap.put("400", r2.getSegmentInfos());
+                        childLevelCombinedDeletionPolicyMap.put(
+                            tenantString,
+                            new CombinedDeletionPolicy(
+                                logger,
+                                translogDeletionPolicy,
+                                softDeletesPolicy,
+                                translogManager::getLastSyncedGlobalCheckpoint
+                            )
+                        );
+                        criteriaBasedIndexWriters.put(
+                            tenantString,
+                            createWriter(store.getDirectoryMapping().get(tenantString), getIndexWriterConfig(tenantString))
+                        );
+                    }
+
+                    final List<StandardDirectoryReader> directoryReaders = new ArrayList<>();
+                    try {
+                        final Map<String, SegmentInfos> segmentInfosCriteriaMap = new HashMap<>();
+                        for (int tenantId = 1; tenantId <= engineConfig.getTotalTenants(); tenantId++) {
+                            String tenantString = String.valueOf(tenantId);
+                            StandardDirectoryReader r = (StandardDirectoryReader) StandardDirectoryReader.open(
+                                criteriaBasedIndexWriters.get(tenantString)
+                            );
+                            directoryReaders.add(r);
+                            segmentInfosCriteriaMap.put(tenantString, r.getSegmentInfos());
+                        }
                         Lucene.combineSegmentInfos(segmentInfosCriteriaMap, store.directory(), true).commit(store.directory());
+                    } finally {
+                        for (StandardDirectoryReader r : directoryReaders) {
+                            r.close();
+                        }
                     }
                 } else {
+                    mergeSchedulerCriteriaMap.put(
+                        "-1",
+                        new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings(), "-1")
+                    );
                     childLevelCombinedDeletionPolicyMap.put(
                         "-1",
                         new CombinedDeletionPolicy(
@@ -1323,20 +1314,12 @@ public class InternalEngine extends Engine {
         if (config().isContextAwareEnabled()) {
             while (docIt.hasNext()) {
                 IndexableField field = docIt.next();
-                if (field.name().equals("status")) {
-                    long statusCode = -1;
-                    if (field.stringValue() != null) {
-                        statusCode = Integer.parseInt(field.stringValue()) / 100;
-                    } else if (field.binaryValue() != null) {
-                        statusCode = LongPoint.decodeDimension(field.binaryValue().bytes, 0);
+                if (field.name().equals("tenant")) {
+                    String tenantId = field.stringValue();
+                    if (tenantId == null || tenantId.isBlank()) {
+                        return "-1";
                     }
-
-                    // TODO: Fix this
-                    if (statusCode > 0 && statusCode <= 3) {
-                        return "200";
-                    } else {
-                        return "400";
-                    }
+                    return tenantId;
                 }
             }
         }
@@ -1912,7 +1895,7 @@ public class InternalEngine extends Engine {
                             : "Noop tombstone document but _tombstone field is not set [" + doc + " ]";
                         doc.add(softDeletesField);
                         if (config().isContextAwareEnabled()) {
-                            criteriaBasedIndexWriters.get("200").addDocument(doc);
+                            criteriaBasedIndexWriters.get("1").addDocument(doc);
                         } else {
                             criteriaBasedIndexWriters.get("-1").addDocument(doc);
                         }
