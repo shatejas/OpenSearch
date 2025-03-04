@@ -354,6 +354,7 @@ public class IndexMetadata implements Diffable<IndexMetadata>, ToXContentFragmen
     public static final String SETTING_REMOTE_STORE_ENABLED = "index.remote_store.enabled";
     public static final String SETTING_INDEX_APPEND_ONLY_ENABLED = "index.append_only.enabled";
     public static final String SETTING_CONTEXT_AWARE_ENABLED = "index.context_aware.enabled";
+    public static final String SETTING_CONTEXT_AWARE_TENANTS = "index.context_aware.total_tenants";
 
     public static final String SETTING_REMOTE_SEGMENT_STORE_REPOSITORY = "index.remote_store.segment.repository";
 
@@ -399,6 +400,13 @@ public class IndexMetadata implements Diffable<IndexMetadata>, ToXContentFragmen
     public static final Setting<Boolean> INDEX_CONTEXT_AWARE_ENABLED_SETTING = Setting.boolSetting(
         SETTING_CONTEXT_AWARE_ENABLED,
         true,
+        Property.IndexScope,
+        Property.Dynamic
+    );
+
+    public static final Setting<Integer> INDEX_CONTEXT_AWARE_TENANTS = Setting.intSetting(
+        SETTING_CONTEXT_AWARE_TENANTS,
+        10,
         Property.IndexScope,
         Property.Dynamic
     );

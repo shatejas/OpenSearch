@@ -210,8 +210,11 @@ public class Lucene {
         return numDocs;
     }
 
-    public static SegmentInfos combineSegmentInfos(Map<String, SegmentInfos> criteriaBasedSegmentInfosMap, Directory directory, boolean created)
-        throws IOException {
+    public static SegmentInfos combineSegmentInfos(
+        Map<String, SegmentInfos> criteriaBasedSegmentInfosMap,
+        Directory directory,
+        boolean created
+    ) throws IOException {
         final SegmentInfos sis;
         if (created) {
             sis = new SegmentInfos(Version.LATEST.major);

@@ -792,6 +792,7 @@ public final class IndexSettings {
     private volatile boolean isRemoteStoreEnabled;
     private final boolean isStoreLocalityPartial;
     private volatile boolean isContextAwareEnabled;
+    private volatile int totalTenants;
     private volatile TimeValue remoteTranslogUploadBufferInterval;
     private volatile String remoteStoreTranslogRepository;
     private volatile String remoteStoreRepository;
@@ -995,7 +996,8 @@ public final class IndexSettings {
         numberOfShards = settings.getAsInt(IndexMetadata.SETTING_NUMBER_OF_SHARDS, null);
         replicationType = IndexMetadata.INDEX_REPLICATION_TYPE_SETTING.get(settings);
         isRemoteStoreEnabled = settings.getAsBoolean(IndexMetadata.SETTING_REMOTE_STORE_ENABLED, false);
-        isContextAwareEnabled = settings.getAsBoolean(IndexMetadata.SETTING_CONTEXT_AWARE_ENABLED, false);
+        isContextAwareEnabled = settings.getAsBoolean(IndexMetadata.SETTING_CONTEXT_AWARE_ENABLED, true);
+        totalTenants = settings.getAsInt(IndexMetadata.SETTING_CONTEXT_AWARE_TENANTS, 10);
         isStoreLocalityPartial = settings.get(
             IndexModule.INDEX_STORE_LOCALITY_SETTING.getKey(),
             IndexModule.DataLocalityType.FULL.toString()
@@ -1352,6 +1354,10 @@ public final class IndexSettings {
 
     public boolean isContextAwareEnabled() {
         return isContextAwareEnabled;
+    }
+
+    public int getTotalTenants() {
+        return totalTenants;
     }
 
     public void setContextAwareEnabled(boolean contextAwareEnabled) {

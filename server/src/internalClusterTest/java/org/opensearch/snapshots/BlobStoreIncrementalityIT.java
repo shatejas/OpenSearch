@@ -37,7 +37,6 @@ import org.opensearch.action.admin.cluster.snapshots.restore.RestoreSnapshotResp
 import org.opensearch.action.admin.cluster.snapshots.status.SnapshotStats;
 import org.opensearch.action.admin.cluster.snapshots.status.SnapshotStatus;
 import org.opensearch.action.admin.indices.forcemerge.ForceMergeResponse;
-import org.opensearch.action.admin.indices.stats.IndexStats;
 import org.opensearch.action.bulk.BulkItemResponse;
 import org.opensearch.action.bulk.BulkRequest;
 import org.opensearch.action.bulk.BulkResponse;
@@ -152,8 +151,10 @@ public class BlobStoreIncrementalityIT extends AbstractSnapshotIntegTestCase {
         internalCluster().startClusterManagerOnlyNode();
         internalCluster().ensureAtLeastNumDataNodes(2);
         final String indexName = "test-index";
-        createIndex(indexName, Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
-            .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build());
+        createIndex(
+            indexName,
+            Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1).put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0).build()
+        );
         ensureGreen(indexName);
 
         logger.info("--> adding some documents to test index and flush in between to get at least two segments");
@@ -165,8 +166,8 @@ public class BlobStoreIncrementalityIT extends AbstractSnapshotIntegTestCase {
             client().bulk(bulkRequest).get();
             flushAndRefresh(indexName);
         }
-//        final IndexStats indexStats = client().admin().indices().prepareStats(indexName).get().getIndex(indexName);
-//        assertThat(indexStats.getIndexShards().get(0).getPrimary().getSegments().getCount(), greaterThan(1L));
+        // final IndexStats indexStats = client().admin().indices().prepareStats(indexName).get().getIndex(indexName);
+        // assertThat(indexStats.getIndexShards().get(0).getPrimary().getSegments().getCount(), greaterThan(1L));
 
         final String snapshot1 = "snap-1";
         final String repo = "test-repo";
