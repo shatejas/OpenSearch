@@ -742,27 +742,33 @@ public abstract class Engine implements LifecycleAware, Closeable {
      * Acquires a point-in-time reader that can be used to create {@link Engine.Searcher}s on demand.
      */
     public final SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper) throws EngineException {
-        return acquireSearcherSupplier(wrapper, SearcherScope.EXTERNAL);
+        return acquireSearcherSupplier(wrapper, SearcherScope.EXTERNAL, getReferenceManager(SearcherScope.EXTERNAL));
     }
 
     /**
      * Acquires a point-in-time reader that can be used to create {@link Engine.Searcher}s on demand.
      */
-    public SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper, SearcherScope scope) throws EngineException {
+    public SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper, SearcherScope scope, ReferenceManager<OpenSearchDirectoryReader> referenceManager) throws EngineException {
         /* Acquire order here is store -> manager since we need
          * to make sure that the store is not closed before
          * the searcher is acquired. */
+//        System.out.println("Inc ref called during acquireSearcherSupplier");
         if (store.tryIncRef() == false) {
             throw new AlreadyClosedException(shardId + " store is closed", failedEngine.get());
         }
         Releasable releasable = store::decRef;
         try {
-            ReferenceManager<OpenSearchDirectoryReader> referenceManager = getReferenceManager(scope);
+//            ReferenceManager<OpenSearchDirectoryReader> referenceManager = getReferenceManager(scope);
+//            if (referenceManager == null) {
+//                referenceManager = getReferenceManager(scope);
+//            }
+
+            ReferenceManager<OpenSearchDirectoryReader> referenceManagerInternal = referenceManager;
             OpenSearchDirectoryReader acquire = referenceManager.acquire();
             SearcherSupplier reader = new SearcherSupplier(wrapper) {
                 @Override
                 public Searcher acquireSearcherInternal(String source) {
-                    assert assertSearcherIsWarmedUp(source, scope);
+                    assert assertSearcherIsWarmedUp(source, scope, referenceManager);
                     return new Searcher(
                         source,
                         acquire,
@@ -776,7 +782,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
                 @Override
                 protected void doClose() {
                     try {
-                        referenceManager.release(acquire);
+                        referenceManagerInternal.release(acquire);
                     } catch (IOException e) {
                         throw new UncheckedIOException("failed to close", e);
                     } catch (AlreadyClosedException e) {
@@ -784,6 +790,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
                         throw new AssertionError(e);
                     } finally {
                         store.decRef();
+//                        System.out.println("Dec ref called during acquireSearcherSupplier");
                     }
                 }
             };
@@ -810,9 +817,13 @@ public abstract class Engine implements LifecycleAware, Closeable {
     }
 
     public Searcher acquireSearcher(String source, SearcherScope scope, Function<Searcher, Searcher> wrapper) throws EngineException {
+        return acquireSearcher(source, scope, wrapper, getReferenceManager(scope));
+    }
+
+    public Searcher acquireSearcher(String source, SearcherScope scope, Function<Searcher, Searcher> wrapper, ReferenceManager<OpenSearchDirectoryReader> referenceManager) throws EngineException {
         SearcherSupplier releasable = null;
         try {
-            SearcherSupplier reader = releasable = acquireSearcherSupplier(wrapper, scope);
+            SearcherSupplier reader = releasable = acquireSearcherSupplier(wrapper, scope, referenceManager);
             Searcher searcher = reader.acquireSearcher(source);
             releasable = null;
             return new Searcher(
@@ -828,9 +839,14 @@ public abstract class Engine implements LifecycleAware, Closeable {
         }
     }
 
-    protected abstract ReferenceManager<OpenSearchDirectoryReader> getReferenceManager(SearcherScope scope);
+    public abstract ReferenceManager<OpenSearchDirectoryReader> getReferenceManager(SearcherScope scope);
 
-    boolean assertSearcherIsWarmedUp(String source, SearcherScope scope) {
+    // TODO: Overrride this in InternalEngine
+    protected List<ReferenceManager<OpenSearchDirectoryReader>> getChildLevelReferenceManagerList() {
+        return null;
+    }
+
+    boolean assertSearcherIsWarmedUp(String source, SearcherScope scope, ReferenceManager<OpenSearchDirectoryReader> referenceManager) {
         return true;
     }
 
@@ -1152,12 +1168,25 @@ public abstract class Engine implements LifecycleAware, Closeable {
 
     public boolean refreshNeeded() {
         if (store.tryIncRef()) {
+//            System.out.println("Inc ref called during Engine refresh needed");
             /*
               we need to inc the store here since we acquire a searcher and that might keep a file open on the
               store. this violates the assumption that all files are closed when
               the store is closed so we need to make sure we increment it here
              */
+
+            List<ReferenceManager<OpenSearchDirectoryReader>> childDirectoryReaderReferenceList = getChildLevelReferenceManagerList();
             try {
+                if (childDirectoryReaderReferenceList != null && !childDirectoryReaderReferenceList.isEmpty()) {
+                    for (ReferenceManager<OpenSearchDirectoryReader> childDirectoryReaderReference : childDirectoryReaderReferenceList) {
+                        try (Searcher searcher = acquireSearcher("refresh_needed", SearcherScope.EXTERNAL, Function.identity(), childDirectoryReaderReference)) {
+                            if (searcher.getDirectoryReader().isCurrent() == false) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
                 try (Searcher searcher = acquireSearcher("refresh_needed", SearcherScope.EXTERNAL)) {
                     return searcher.getDirectoryReader().isCurrent() == false;
                 }
@@ -1167,6 +1196,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
                 throw new EngineException(shardId, "failed to access searcher manager", e);
             } finally {
                 store.decRef();
+//                System.out.println("Dec ref called during Engine refresh needed");
             }
         }
         return false;
@@ -1302,6 +1332,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
                     // the shard is initializing
                     if (Lucene.isCorruptionException(failure)) {
                         if (store.tryIncRef()) {
+//                            System.out.println("Inc ref called during Engine failure");
                             try {
                                 store.markStoreCorrupted(
                                     new IOException("failed engine (reason: [" + reason + "])", ExceptionsHelper.unwrapCorruption(failure))
@@ -1310,6 +1341,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
                                 logger.warn("Couldn't mark store corrupted", e);
                             } finally {
                                 store.decRef();
+//                                System.out.println("Dec ref called during Engine failure");
                             }
                         } else {
                             logger.warn(

@@ -674,6 +674,7 @@ public class IndicesService extends AbstractLifecycleComponent
     @Override
     protected void doClose() throws IOException {
         indicesRefCount.decRef();
+//        System.out.println("DecRef on index service closed " + indicesRefCount.refCount());
     }
 
     /**
@@ -859,6 +860,7 @@ public class IndicesService extends AbstractLifecycleComponent
             @Override
             public void onStoreCreated(ShardId shardId) {
                 indicesRefCount.incRef();
+//                System.out.println("IncRef on store created " + indicesRefCount.refCount());
             }
 
             @Override
@@ -867,6 +869,7 @@ public class IndicesService extends AbstractLifecycleComponent
                     indicesQueryCache.onClose(shardId);
                 } finally {
                     indicesRefCount.decRef();
+//                    System.out.println("DecRef on store closed " + indicesRefCount.refCount());
                 }
             }
         };

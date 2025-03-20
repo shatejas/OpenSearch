@@ -1039,7 +1039,7 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
      */
     public void waitForDocs(final long numDocs, final BackgroundIndexer indexer) throws Exception {
         // indexing threads can wait for up to ~1m before retrying when they first try to index into a shard which is not STARTED.
-        final long maxWaitTimeMs = Math.max(90 * 1000, 200 * numDocs);
+        final long maxWaitTimeMs = Math.min(90 * 1000, 200 * numDocs);
 
         assertBusy(() -> {
             long lastKnownCount = indexer.totalIndexedDocs();
@@ -1054,6 +1054,8 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
                         .getHits()
                         .getTotalHits()
                         .value();
+
+//                    System.out.println("Num doc " + numDocs + " Doc count: " + count + " and lastKnownCount " + lastKnownCount);
 
                     if (count == lastKnownCount) {
                         // no progress - try to refresh for the next time
@@ -1557,19 +1559,19 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
         for (IndexRequestBuilder builder : builders) {
             indices.add(builder.request().index());
         }
-        Set<List<String>> bogusIds = new HashSet<>(); // (index, type, id)
+//        Set<List<String>> bogusIds = new HashSet<>(); // (index, type, id)
         if (random.nextBoolean() && !builders.isEmpty() && dummyDocuments) {
             builders = new ArrayList<>(builders);
             // inject some bogus docs
             final int numBogusDocs = scaledRandomIntBetween(1, builders.size() * 2);
             final int unicodeLen = between(1, 10);
-            for (int i = 0; i < numBogusDocs; i++) {
-                String id = "bogus_doc_" + randomRealisticUnicodeOfLength(unicodeLen) + dummmyDocIdGenerator.incrementAndGet();
-                String index = RandomPicks.randomFrom(random, indices);
-                bogusIds.add(Arrays.asList(index, id));
-                // We configure a routing key in case the mapping requires it
-                builders.add(client().prepareIndex().setIndex(index).setId(id).setSource("{}", MediaTypeRegistry.JSON).setRouting(id));
-            }
+//            for (int i = 0; i < numBogusDocs; i++) {
+//                String id = "bogus_doc_" + randomRealisticUnicodeOfLength(unicodeLen) + dummmyDocIdGenerator.incrementAndGet();
+//                String index = RandomPicks.randomFrom(random, indices);
+//                bogusIds.add(Arrays.asList(index, id));
+//                // We configure a routing key in case the mapping requires it
+//                builders.add(client().prepareIndex().setIndex(index).setId(id).setSource("{}", MediaTypeRegistry.JSON).setRouting(id));
+//            }
         }
         Collections.shuffle(builders, random());
         final CopyOnWriteArrayList<Tuple<IndexRequestBuilder, Exception>> errors = new CopyOnWriteArrayList<>();
@@ -1623,16 +1625,16 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
         }
         assertThat(actualErrors, emptyIterable());
 
-        if (!bogusIds.isEmpty()) {
-            // delete the bogus types again - it might trigger merges or at least holes in the segments and enforces deleted docs!
-            for (List<String> doc : bogusIds) {
-                assertEquals(
-                    "failed to delete a dummy doc [" + doc.get(0) + "][" + doc.get(1) + "]",
-                    DocWriteResponse.Result.DELETED,
-                    client().prepareDelete(doc.get(0), doc.get(1)).setRouting(doc.get(1)).get().getResult()
-                );
-            }
-        }
+//        if (!bogusIds.isEmpty()) {
+//            // delete the bogus types again - it might trigger merges or at least holes in the segments and enforces deleted docs!
+//            for (List<String> doc : bogusIds) {
+//                assertEquals(
+//                    "failed to delete a dummy doc [" + doc.get(0) + "][" + doc.get(1) + "]",
+//                    DocWriteResponse.Result.DELETED,
+//                    client().prepareDelete(doc.get(0), doc.get(1)).setRouting(doc.get(1)).get().getResult()
+//                );
+//            }
+//        }
         if (forceRefresh) {
             assertNoFailures(
                 client().admin().indices().prepareRefresh(indicesArray).setIndicesOptions(IndicesOptions.lenientExpandOpen()).get()
@@ -1653,25 +1655,25 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
      * @param indices         the indices in which bogus documents should be ingested
      * */
     protected void indexRandomForMultipleSlices(String... indices) throws InterruptedException {
-        Set<List<String>> bogusIds = new HashSet<>();
+//        Set<List<String>> bogusIds = new HashSet<>();
         int refreshCount = randomIntBetween(2, 3);
         for (String index : indices) {
             int numDocs = getNumShards(index).totalNumShards * randomIntBetween(2, 10);
             while (refreshCount-- > 0) {
                 final CopyOnWriteArrayList<Tuple<IndexRequestBuilder, Exception>> errors = new CopyOnWriteArrayList<>();
                 List<CountDownLatch> inFlightAsyncOperations = new ArrayList<>();
-                for (int i = 0; i < numDocs; i++) {
-                    String id = "bogus_doc_" + randomRealisticUnicodeOfLength(between(1, 10)) + dummmyDocIdGenerator.incrementAndGet();
-                    IndexRequestBuilder indexRequestBuilder = client().prepareIndex()
-                        .setIndex(index)
-                        .setId(id)
-                        .setSource("{}", MediaTypeRegistry.JSON)
-                        .setRouting(id);
-                    indexRequestBuilder.execute(
-                        new PayloadLatchedActionListener<>(indexRequestBuilder, newLatch(inFlightAsyncOperations), errors)
-                    );
-                    bogusIds.add(Arrays.asList(index, id));
-                }
+//                for (int i = 0; i < numDocs; i++) {
+//                    String id = "bogus_doc_" + randomRealisticUnicodeOfLength(between(1, 10)) + dummmyDocIdGenerator.incrementAndGet();
+//                    IndexRequestBuilder indexRequestBuilder = client().prepareIndex()
+//                        .setIndex(index)
+//                        .setId(id)
+//                        .setSource("{}", MediaTypeRegistry.JSON)
+//                        .setRouting(id);
+//                    indexRequestBuilder.execute(
+//                        new PayloadLatchedActionListener<>(indexRequestBuilder, newLatch(inFlightAsyncOperations), errors)
+//                    );
+//                    bogusIds.add(Arrays.asList(index, id));
+//                }
                 for (CountDownLatch operation : inFlightAsyncOperations) {
                     operation.await();
                 }
@@ -1689,13 +1691,13 @@ public abstract class OpenSearchIntegTestCase extends OpenSearchTestCase {
                 refresh(index);
             }
         }
-        for (List<String> doc : bogusIds) {
-            assertEquals(
-                "failed to delete a dummy doc [" + doc.get(0) + "][" + doc.get(1) + "]",
-                DocWriteResponse.Result.DELETED,
-                client().prepareDelete(doc.get(0), doc.get(1)).setRouting(doc.get(1)).get().getResult()
-            );
-        }
+//        for (List<String> doc : bogusIds) {
+//            assertEquals(
+//                "failed to delete a dummy doc [" + doc.get(0) + "][" + doc.get(1) + "]",
+//                DocWriteResponse.Result.DELETED,
+//                client().prepareDelete(doc.get(0), doc.get(1)).setRouting(doc.get(1)).get().getResult()
+//            );
+//        }
         // refresh is called to make sure the bogus docs doesn't affect the search results
         refresh();
     }

@@ -55,6 +55,7 @@ import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.unit.TimeValue;
+import org.opensearch.common.util.ArrayUtils;
 import org.opensearch.common.util.CancellableThreads;
 import org.opensearch.common.util.concurrent.FutureUtils;
 import org.opensearch.common.util.concurrent.ListenableFuture;
@@ -482,6 +483,8 @@ public abstract class RecoverySourceHandler {
                     totalSizeInBytes += md.length();
                 }
 
+                System.out.println("recovery [phase1]: recovering_files " + String.join(", ", phase1FileNames)
+                    + " reusing_files " + String.join(", ", phase1ExistingFileNames));
                 logger.trace(
                     "recovery [phase1]: recovering_files [{}] with total_size [{}], reusing_files [{}] with total_size [{}]",
                     phase1FileNames.size(),
@@ -504,6 +507,7 @@ public abstract class RecoverySourceHandler {
                 );
 
                 sendFileInfoStep.whenComplete(r -> {
+                    System.out.println("sendFileInfoStep completed");
                     logger.debug("sendFileInfoStep completed");
                     sendFiles(store, phase1Files.toArray(new StoreFileMetadata[0]), translogOps, sendFilesStep);
                 }, listener::onFailure);
@@ -511,11 +515,13 @@ public abstract class RecoverySourceHandler {
                 // When doing peer recovery of remote store enabled replica, retention leases are not required.
                 if (skipCreateRetentionLeaseStep) {
                     sendFilesStep.whenComplete(r -> {
+                        System.out.println("sendFilesStep completed");
                         logger.debug("sendFilesStep completed");
                         createRetentionLeaseStep.onResponse(null);
                     }, listener::onFailure);
                 } else {
                     sendFilesStep.whenComplete(r -> {
+                        System.out.println("sendFilesStep completed");
                         logger.debug("sendFilesStep completed");
                         createRetentionLease(startingSeqNo, createRetentionLeaseStep);
                     }, listener::onFailure);
@@ -535,8 +541,10 @@ public abstract class RecoverySourceHandler {
                 final long totalSize = totalSizeInBytes;
                 final long existingTotalSize = existingTotalSizeInBytes;
                 cleanFilesStep.whenComplete(r -> {
+                    System.out.println("cleanFilesStep completed");
                     logger.debug("cleanFilesStep completed");
                     final TimeValue took = stopWatch.totalTime();
+                    System.out.println("recovery [phase1]: took: " + took);
                     logger.trace("recovery [phase1]: took [{}]", took);
                     listener.onResponse(
                         new SendFileResult(

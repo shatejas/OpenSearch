@@ -1704,6 +1704,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
     public void finalizeReplication(SegmentInfos infos) throws IOException {
         if (getReplicationEngine().isPresent()) {
+            System.out.println("Updating segments " + Arrays.toString(infos.asList().toArray()));
             getReplicationEngine().get().updateSegments(infos);
         }
     }
@@ -1934,7 +1935,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         readAllowed();
         markSearcherAccessed();
         final Engine engine = getEngine();
-        return engine.acquireSearcherSupplier(this::wrapSearcher, scope);
+        return engine.acquireSearcherSupplier(this::wrapSearcher, scope, engine.getReferenceManager(scope));
     }
 
     public Engine.Searcher acquireSearcher(String source) {
@@ -4677,7 +4678,10 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
     public boolean scheduledRefresh() {
         verifyNotClosed();
         boolean listenerNeedsRefresh = refreshListeners.refreshNeeded();
-        if (isReadAllowed() && (listenerNeedsRefresh || getEngine().refreshNeeded())) {
+        boolean isRefreshNeeded = getEngine().refreshNeeded();
+//        System.out.println("Trying to trigger a refresh with parameter " + isReadAllowed() + " "
+//            + listenerNeedsRefresh + " " + isRefreshNeeded + " " + isSearchIdleSupported() + " " + isSearchIdle());
+        if (isReadAllowed() && (listenerNeedsRefresh || isRefreshNeeded)) {
             if (listenerNeedsRefresh == false // if we have a listener that is waiting for a refresh we need to force it
                 && isSearchIdleSupported()
                 && isSearchIdle()
@@ -4691,6 +4695,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                 setRefreshPending(engine);
                 return false;
             } else {
+//                System.out.println("Triggering a refresh");
                 if (logger.isTraceEnabled()) {
                     logger.trace("refresh with source [schedule]");
                 }
@@ -4720,10 +4725,12 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
     public final boolean isSearchIdleSupported() {
         // If the index is remote store backed, then search idle is not supported. This is to ensure that async refresh
         // task continues to upload to remote store periodically.
-        if (isRemoteTranslogEnabled() || indexSettings.isAssignedOnRemoteNode()) {
-            return false;
-        }
-        return indexSettings.isSegRepEnabledOrRemoteNode() == false || indexSettings.getNumberOfReplicas() == 0;
+//        if (isRemoteTranslogEnabled() || indexSettings.isAssignedOnRemoteNode()) {
+//            return false;
+//        }
+//        return indexSettings.isSegRepEnabledOrRemoteNode() == false || indexSettings.getNumberOfReplicas() == 0;
+
+        return false;
     }
 
     /**

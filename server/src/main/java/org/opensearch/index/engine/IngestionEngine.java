@@ -80,7 +80,7 @@ public class IngestionEngine extends InternalEngine {
             engineConfig.getShardId().getId()
         );
         logger.info("created ingestion consumer for shard [{}]", engineConfig.getShardId());
-        Map<String, String> commitData = commitDataAsMap(indexWriter);
+        Map<String, String> commitData = commitDataAsMap(parentIndexWriter);
         StreamPoller.ResetState resetState = ingestionSource.getPointerInitReset().getType();
         IngestionShardPointer startPointer = null;
         Set<IngestionShardPointer> persistedPointers = new HashSet<>();
@@ -149,7 +149,7 @@ public class IngestionEngine extends InternalEngine {
 
     private IndexResult indexIntoLucene(Index index) throws IOException {
         // todo: handle updates
-        addDocs(index.docs(), indexWriter);
+        addDocs(index.docs(), parentIndexWriter);
         return new IndexResult(index.version(), index.primaryTerm(), index.seqNo(), true);
     }
 
@@ -297,7 +297,7 @@ public class IngestionEngine extends InternalEngine {
     }
 
     protected Map<String, String> commitDataAsMap() {
-        return commitDataAsMap(indexWriter);
+        return commitDataAsMap(parentIndexWriter);
     }
 
     @Override
