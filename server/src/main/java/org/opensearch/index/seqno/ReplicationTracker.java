@@ -1619,6 +1619,7 @@ public class ReplicationTracker extends AbstractIndexShardComponent implements L
         assert primaryMode;
         assert handoffInProgress == false;
         CheckpointState cps = checkpoints.get(allocationId);
+        System.out.println("Marking Allocation id " + allocationId + " as sync");
         if (cps == null) {
             // can happen if replica was removed from cluster but recovery process is unaware of it yet
             throw new IllegalStateException("no local checkpoint tracking information available for " + allocationId);
@@ -1642,6 +1643,7 @@ public class ReplicationTracker extends AbstractIndexShardComponent implements L
         if (cps.replicated && cps.localCheckpoint < getGlobalCheckpoint()) {
             pendingInSync.add(allocationId);
             try {
+                System.out.println("Waiting for local checkpoint to advance");
                 while (true) {
                     if (pendingInSync.contains(allocationId)) {
                         waitForLocalCheckpointToAdvance();
@@ -1650,6 +1652,7 @@ public class ReplicationTracker extends AbstractIndexShardComponent implements L
                     }
                 }
             } finally {
+                System.out.println("Local checkpoint advanced");
                 pendingInSync.remove(allocationId);
             }
         } else {
@@ -1695,11 +1698,13 @@ public class ReplicationTracker extends AbstractIndexShardComponent implements L
         assert invariant();
         assert primaryMode;
         assert handoffInProgress == false;
+//        System.out.println("Got local checkpoint " + localCheckpoint + " and global checkpoint " + getGlobalCheckpoint() + " for allocation id " + allocationId);
         CheckpointState cps = checkpoints.get(allocationId);
         if (cps == null) {
             // can happen if replica was removed from cluster but replication process is unaware of it yet
             return;
         }
+
         boolean increasedLocalCheckpoint = updateLocalCheckpoint(allocationId, cps, localCheckpoint);
         boolean pending = pendingInSync.contains(allocationId);
         if (pending && cps.localCheckpoint >= getGlobalCheckpoint()) {
@@ -1707,6 +1712,7 @@ public class ReplicationTracker extends AbstractIndexShardComponent implements L
             pending = false;
             cps.inSync = true;
             updateReplicationGroupAndNotify();
+            System.out.println("marked " + allocationId + " as in-sync");
             logger.trace("marked [{}] as in-sync", allocationId);
             notifyAllWaiters();
         }
@@ -1756,6 +1762,7 @@ public class ReplicationTracker extends AbstractIndexShardComponent implements L
             + "]";
         if (globalCheckpoint != computedGlobalCheckpoint) {
             globalCheckpoint = computedGlobalCheckpoint;
+//            System.out.println("updated global checkpoint to " + computedGlobalCheckpoint);
             logger.trace("updated global checkpoint to [{}]", computedGlobalCheckpoint);
             onGlobalCheckpointUpdated.accept(computedGlobalCheckpoint);
         }

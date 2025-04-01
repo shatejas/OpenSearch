@@ -140,6 +140,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -185,6 +186,7 @@ public class InternalEngine extends Engine {
     private final OpenSearchReaderManager internalReaderManager;
     private final Map<String, IndexWriter> activeChildIndexWriterMap = new ConcurrentHashMap<>();
     private final Map<String, Set<IndexWriter>> markForRefreshChildIndexWriterMap = new ConcurrentHashMap<>();
+    private final Map<String, IndexWriter> currentIndexWriterMap = new ConcurrentHashMap<>();
 
     private final Lock flushLock = new ReentrantLock();
     private final ReentrantLock optimizeLock = new ReentrantLock();
@@ -894,6 +896,7 @@ public class InternalEngine extends Engine {
     public IndexResult index(Index index) throws IOException {
         assert Objects.equals(index.uid().field(), IdFieldMapper.NAME) : index.uid().field();
         final boolean doThrottle = index.origin().isRecovery() == false;
+//        System.out.println("Index operation called with origin " + index.origin());
         try (ReleasableLock releasableLock = readLock.acquire()) {
             ensureOpen();
             assert assertIncomingSequenceNumber(index.origin(), index.seqNo());
@@ -1005,6 +1008,8 @@ public class InternalEngine extends Engine {
                         new IndexVersionValue(translogLocation, plan.versionForIndexing, index.seqNo(), index.primaryTerm())
                     );
                 }
+
+//                System.out.println("Marking seqNo as processed " + indexResult.getSeqNo());
                 localCheckpointTracker.markSeqNoAsProcessed(indexResult.getSeqNo());
                 if (indexResult.getTranslogLocation() == null
                     && !(indexResult.getFailure() != null
@@ -1015,6 +1020,12 @@ public class InternalEngine extends Engine {
                 }
                 indexResult.setTook(System.nanoTime() - index.startTime());
                 indexResult.freeze();
+//                if (index.origin() == Operation.Origin.PRIMARY) {
+//                    System.out.println("After indexing persisted primary local checkpoint is " + localCheckpointTracker.getProcessedCheckpoint());
+//                } else {
+//                    System.out.println("After indexing persisted replica local checkpoint is " + localCheckpointTracker.getProcessedCheckpoint());
+//                }
+
                 return indexResult;
             } finally {
                 releaseInFlightDocs(reservedDocs);
@@ -1180,17 +1191,21 @@ public class InternalEngine extends Engine {
         try {
             String criteria = getGroupingCriteriaForDoc(index.docs());
             currentIndexWriter = getAssociatedIndexWriterForCriteria(criteria);
-            if (plan.addStaleOpToLucene) {
-                addStaleDocs(index.docs(), currentIndexWriter);
-            } else if (plan.useLuceneUpdateDocument) {
-                assert assertMaxSeqNoOfUpdatesIsAdvanced(index.uid(), index.seqNo(), true, true);
-                updateDocs(index.uid(), index.docs(), currentIndexWriter);
-            } else {
-                // document does not exists, we can optimize for create, but double check if assertions are running
-                assert assertDocDoesNotExist(index, canOptimizeAddDocument(index) == false);
-                addDocs(index.docs(), currentIndexWriter);
+
+            // To prevent getting closed.
+            try (ReleasableLock releasableLock = childLevelReadLocks.get(currentIndexWriter.toString()).acquire()) {
+                if (plan.addStaleOpToLucene) {
+                    addStaleDocs(index.docs(), currentIndexWriter);
+                } else if (plan.useLuceneUpdateDocument) {
+                    assert assertMaxSeqNoOfUpdatesIsAdvanced(index.uid(), index.seqNo(), true, true);
+                    updateDocs(index.uid(), index.docs(), currentIndexWriter);
+                } else {
+                    // document does not exists, we can optimize for create, but double check if assertions are running
+                    assert assertDocDoesNotExist(index, canOptimizeAddDocument(index) == false);
+                    addDocs(index.docs(), currentIndexWriter);
+                }
+                return new IndexResult(plan.versionForIndexing, index.primaryTerm(), index.seqNo(), plan.currentNotFoundOrDeleted);
             }
-            return new IndexResult(plan.versionForIndexing, index.primaryTerm(), index.seqNo(), plan.currentNotFoundOrDeleted);
         } catch (Exception ex) {
             if (ex instanceof AlreadyClosedException == false
                 && currentIndexWriter != null
@@ -1232,17 +1247,22 @@ public class InternalEngine extends Engine {
         String pathString = "temp_" + criteria + "_" + UUID.randomUUID();
 
 //        IndexWriterConfig indexWriterConfig = getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler);
+//        System.out.println("Creating new childIndexWriter " + pathString);
         IndexWriter childIndexWriter = createWriter(store.newTempDirectory(pathString), getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler));
         final Map<String, String> userData = new HashMap<>();
         userData.put(DIRECTORY_PATH_KEY, pathString);
         childIndexWriter.setLiveCommitData(userData.entrySet());
+        ReentrantReadWriteLock childLock = new ReentrantReadWriteLock();
+        childLevelReadWriteLocks.put(childIndexWriter.toString(), childLock);
+        childLevelReadLocks.put(childIndexWriter.toString(), new ReleasableLock(childLock.readLock()));
+        childLevelWriteLocks.put(childIndexWriter.toString(), new ReleasableLock(childLock.writeLock()));
         ExternalReaderManager childLevelReaderManager = createReaderManager(new RefreshWarmerListener(logger, new AtomicBoolean(isClosed.get()), engineConfig), childIndexWriter);
         // Initial refresh gets called when shards gets created in IndexShard.finaliseRecovery. So in oder to ensure
         // initial shard is warmed up we call an explicit refresh on child level Reader manager.
         childLevelReaderManager.maybeRefreshBlocking();
         assert childLevelReaderManager.isWarmedUp;
         groupLevelExternalReaderManagersMap.put(pathString, childLevelReaderManager);
-
+        currentIndexWriterMap.put(pathString, childIndexWriter);
         activeChildIndexWriterMap.put(criteria, childIndexWriter);
         return childIndexWriter;
     }
@@ -1259,7 +1279,6 @@ public class InternalEngine extends Engine {
             verbose = Boolean.parseBoolean(System.getProperty("tests.verbose"));
         } catch (Exception ignore) {}
         iwc.setInfoStream(verbose ? InfoStream.getDefault() : new LoggerInfoStream(logger));
-        iwc.setMergeScheduler(mergeScheduler);
         iwc.setMergeScheduler(childMergeScheduler);
         // Give us the opportunity to upgrade old segments while performing
         // background merges
@@ -1390,7 +1409,7 @@ public class InternalEngine extends Engine {
 
     private void addDocs(final List<ParseContext.Document> docs, final IndexWriter indexWriter) throws IOException {
         testCount.addAndGet(docs.size());
-        System.out.println("Current doc count should be " + testCount.get());
+//        System.out.println("Current doc count for IndexWriter " + parentIndexWriter + " should be " + testCount.get());
         if (docs.size() > 1) {
             indexWriter.addDocuments(docs);
         } else {
@@ -1528,7 +1547,7 @@ public class InternalEngine extends Engine {
         }
 
         testCount.addAndGet(docs.size());
-        System.out.println("Current doc count should be " + testCount.get());
+//        System.out.println("Current doc count should be " + testCount.get());
         if (docs.size() > 1) {
             indexWriter.softUpdateDocuments(uid, docs, softDeletesField);
         } else {
@@ -1988,19 +2007,34 @@ public class InternalEngine extends Engine {
 //                System.out.println("Inc ref called during Engine refresh");
                 // increment the ref just to ensure nobody closes the store during a refresh
                 try {
-
                     // Refresh child readers first so that Segments are persisted on disk.
                     if (block) {
-                        for (ReferenceManager<OpenSearchDirectoryReader> groupLevelExternalReaderManager: groupLevelExternalReaderManagersMap.values()) {
-                            groupLevelExternalReaderManager.maybeRefreshBlocking();
+                        for (Map.Entry<String, ExternalReaderManager> groupLevelExternalReaderManagerEntry: groupLevelExternalReaderManagersMap.entrySet()) {
+                            IndexWriter currentIndexWriter = currentIndexWriterMap.get(groupLevelExternalReaderManagerEntry.getKey());
+                            if (currentIndexWriter != null && currentIndexWriter.isOpen()) {
+                                try {
+                                    groupLevelExternalReaderManagerEntry.getValue().maybeRefreshBlocking();
+                                } catch (AlreadyClosedException ignore) {
+                                    // TODO: Fix this because of race condition between close call and refresh call.
+                                    //  Should not cause any problem as we should ignore already closed readers.
+                                }
+                            }
                         }
                     } else {
-                        for (ReferenceManager<OpenSearchDirectoryReader> groupLevelExternalReaderManager: groupLevelExternalReaderManagersMap.values()) {
-                            groupLevelExternalReaderManager.maybeRefresh();
+                        for (Map.Entry<String, ExternalReaderManager> groupLevelExternalReaderManagerEntry: groupLevelExternalReaderManagersMap.entrySet()) {
+                            IndexWriter currentIndexWriter = currentIndexWriterMap.get(groupLevelExternalReaderManagerEntry.getKey());
+                            if (currentIndexWriter != null && currentIndexWriter.isOpen()) {
+                                try {
+                                    groupLevelExternalReaderManagerEntry.getValue().maybeRefresh();
+                                } catch (AlreadyClosedException ignore) {
+                                    // TODO: Fix this because of race condition between close call and refresh call.
+                                    //  Should not cause any problem as we should ignore already closed readers.
+                                }
+                            }
                         }
                     }
 
-                    refreshParentIndexWriter();
+                    refreshParentIndexWriter(false);
                     // even though we maintain 2 managers we really do the heavy-lifting only once.
                     // the second refresh will only do the extra work we have to do for warming caches etc.
                     ReferenceManager<OpenSearchDirectoryReader> referenceManager = getReferenceManager(scope);
@@ -2088,12 +2122,12 @@ public class InternalEngine extends Engine {
                 logger.trace("acquired flush lock immediately");
             }
             try {
-                refreshParentIndexWriter();
 
                 // Only flush if (1) Lucene has uncommitted docs, or (2) forced by caller, or (3) the
                 // newly created commit points to a different translog generation (can free translog),
                 // or (4) the local checkpoint information in the last commit is stale, which slows down future recoveries.
-                boolean hasUncommittedChanges = parentIndexWriter.hasUncommittedChanges();
+
+                boolean hasUncommittedChanges = hasUncommittedChanges();
                 boolean shouldPeriodicallyFlush = shouldPeriodicallyFlush();
                 if (hasUncommittedChanges
                     || force
@@ -2112,7 +2146,7 @@ public class InternalEngine extends Engine {
                         final GatedCloseable<IndexCommit> latestCommit = engineConfig.getIndexSettings().isSegRepEnabledOrRemoteNode()
                             ? acquireLastIndexCommit(false)
                             : null;
-                        commitIndexWriter(parentIndexWriter, translogManager.getTranslogUUID());
+                        refreshParentIndexWriter(true);
                         logger.trace("finished commit for flush");
 
                         // a temporary debugging to investigate test failure - issue#32827. Remove when the issue is resolved
@@ -2143,8 +2177,6 @@ public class InternalEngine extends Engine {
             } catch (FlushFailedEngineException ex) {
                 maybeFailEngine("flush", ex);
                 throw ex;
-            } catch (IOException e) {
-                throw new RuntimeException(e);
             } finally {
                 flushLock.unlock();
             }
@@ -2156,64 +2188,113 @@ public class InternalEngine extends Engine {
         }
     }
 
-    private synchronized void refreshParentIndexWriter() throws IOException {
-        System.out.println("Refreshing parent IndexWriter for map size " + groupLevelExternalReaderManagersMap.size());
+    public boolean hasUncommittedChanges() {
+        for (IndexWriter indexWriter : activeChildIndexWriterMap.values()) {
+            if (indexWriter.hasUncommittedChanges()) {
+                return true;
+            }
+        }
+
+        return parentIndexWriter.hasUncommittedChanges();
+    }
+
+    private synchronized void refreshParentIndexWriter(final boolean doCommit) throws IOException {
+//        System.out.println("Refreshing parent IndexWriter for map size " + groupLevelExternalReaderManagersMap.size() + " for IndexWriter " + parentIndexWriter);
         for (Map.Entry<String, IndexWriter> indexWriterEntry: activeChildIndexWriterMap.entrySet()) {
             String criteria = indexWriterEntry.getKey();
             IndexWriter writer = indexWriterEntry.getValue();
-            if (writer.hasUncommittedChanges()) {
-                writer.commit();
-            } else {
-                System.out.println("Removing key from IndexWriter " + criteria);
-                activeChildIndexWriterMap.remove(criteria);
-                markForRefreshChildIndexWriterMap.computeIfAbsent(criteria, k -> new HashSet<>());
-                markForRefreshChildIndexWriterMap.get(criteria).add(writer);
-            }
+            activeChildIndexWriterMap.remove(criteria);
+            markForRefreshChildIndexWriterMap.computeIfAbsent(criteria, k -> new HashSet<>());
+            markForRefreshChildIndexWriterMap.get(criteria).add(writer);
         }
 
         List<Directory> directoryToCombine = new ArrayList<>();
         long total = 0;
-        System.out.println();
-        System.out.println();
+//        System.out.println();
+//        System.out.println();
+        long maxSeqNo = -1, maxLocalCheckpoint = -1;
         for (Map.Entry<String, Set<IndexWriter>> childIndexWritersEntry: markForRefreshChildIndexWriterMap.entrySet()) {
             String criteria = childIndexWritersEntry.getKey();
             for (IndexWriter childIndexWriter: childIndexWritersEntry.getValue()) {
                 directoryToCombine.add(childIndexWriter.getDirectory());
-//                childIndexWriter.commit();
                 for (Map.Entry<String, String> entry : childIndexWriter.getLiveCommitData()) {
                     if (entry.getKey().equals(DIRECTORY_PATH_KEY)) {
-                        System.out.println("Removing key from directory reader manager " + entry.getValue());
+//                        System.out.println("Removing key from directory reader manager " + entry.getValue());
                         ExternalReaderManager readerManager = groupLevelExternalReaderManagersMap.remove(entry.getValue());
                         readerManager.maybeRefreshBlocking();
-                        try(IndexReader reader = acquireSearcher("refresh_needed", SearcherScope.EXTERNAL, Function.identity(), readerManager).getIndexReader()) {
-                            long localCount = docsStats(reader).getCount();
-                            total += localCount;
-                            System.out.println("For key " + entry.getValue() + " doc count " + localCount);
-                        }
+//                        try(IndexReader reader = acquireSearcher("refresh_needed", SearcherScope.EXTERNAL, Function.identity(), readerManager).getIndexReader()) {
+//                            long localCount = docsStats(reader).getCount();
+//                            total += localCount;
+//                            System.out.println("For key " + entry.getValue() + " doc count " + localCount);
+//                        }
 
                         readerManager.close();
                         break;
                     }
                 }
 
-                System.out.println();
-                System.out.println();
-                childIndexWriter.close();
+                long localCheckpoint = localCheckpointTracker.getProcessedCheckpoint();
+                childIndexWriter.setLiveCommitData(() -> {
+                    /*
+                     * The user data captured above (e.g. local checkpoint) contains data that must be evaluated *before* Lucene flushes
+                     * segments, including the local checkpoint amongst other values. The maximum sequence number is different, we never want
+                     * the maximum sequence number to be less than the last sequence number to go into a Lucene commit, otherwise we run the
+                     * risk of re-using a sequence number for two different documents when restoring from this commit point and subsequently
+                     * writing new documents to the index. Since we only know which Lucene documents made it into the final commit after the
+                     * {@link IndexWriter#commit()} call flushes all documents, we defer computation of the maximum sequence number to the time
+                     * of invocation of the commit data iterator (which occurs after all documents have been flushed to Lucene).
+                     */
+                    final Map<String, String> commitData = new HashMap<>(7);
+                    commitData.put(Translog.TRANSLOG_UUID_KEY, translogManager.getTranslogUUID());
+                    commitData.put(SequenceNumbers.LOCAL_CHECKPOINT_KEY, Long.toString(localCheckpoint));
+                    commitData.put(SequenceNumbers.MAX_SEQ_NO, Long.toString(localCheckpointTracker.getMaxSeqNo()));
+                    commitData.put(MAX_UNSAFE_AUTO_ID_TIMESTAMP_COMMIT_ID, Long.toString(maxUnsafeAutoIdTimestamp.get()));
+                    commitData.put(HISTORY_UUID_KEY, historyUUID);
+                    commitData.put(Engine.MIN_RETAINED_SEQNO, Long.toString(softDeletesPolicy.getMinRetainedSeqNo()));
+                    final String currentForceMergeUUID = forceMergeUUID;
+                    if (currentForceMergeUUID != null) {
+                        commitData.put(FORCE_MERGE_UUID_KEY, currentForceMergeUUID);
+                    }
+                    logger.trace("committing writer with commit data [{}]", commitData);
+                    return commitData.entrySet().iterator();
+                });
+
+//                System.out.println();
+//                System.out.println();
+                try (ReleasableLock ignored = childLevelWriteLocks.get(childIndexWriter.toString()).acquire()) {
+                    childIndexWriter.close();
+                }
+
+                for (Map.Entry<String, String> entry : childIndexWriter.getLiveCommitData()) {
+                    if (entry.getKey().equals(SequenceNumbers.LOCAL_CHECKPOINT_KEY)) {
+                        maxLocalCheckpoint = Math.max(maxLocalCheckpoint, Long.parseLong(entry.getValue()));
+                    } else if (entry.getKey().equals(SequenceNumbers.MAX_SEQ_NO)) {
+                        maxSeqNo = Math.max(maxSeqNo, Long.parseLong(entry.getValue()));
+                    }
+                }
+
                 markForRefreshChildIndexWriterMap.get(criteria).remove(childIndexWriter);
             }
         }
 
-        System.out.println("Total actual child level doc count " + total);
+//        System.out.println("Total actual child level doc count " + total);
 
         if (!directoryToCombine.isEmpty()) {
             parentIndexWriter.addIndexes(directoryToCombine.toArray(new Directory[0]));
-            System.out.println("Refreshed parent IndexWriter " + testCount.get());
+//            System.out.println("Refreshed parent IndexWriter count " + testCount.get() + " indexWriter id: " + parentIndexWriter);
             for (Directory directory: directoryToCombine) {
                 directory.close();
             }
+
+            if (doCommit) {
+                commitIndexWriter(parentIndexWriter, translogManager.getTranslogUUID(), maxLocalCheckpoint, maxSeqNo);
+            }
+
+        } else if (doCommit){
+            commitIndexWriter(parentIndexWriter, translogManager.getTranslogUUID());
         }
 
-        System.out.println("After refresh test count should be " + testCount.get());
+//        System.out.println("After refresh test count should be " + testCount.get() + " for IndexWriter " + parentIndexWriter);
     }
 
     private void refreshLastCommittedSegmentInfos() {
@@ -2870,6 +2951,62 @@ public class InternalEngine extends Engine {
                 commitData.put(Translog.TRANSLOG_UUID_KEY, translogUUID);
                 commitData.put(SequenceNumbers.LOCAL_CHECKPOINT_KEY, Long.toString(localCheckpoint));
                 commitData.put(SequenceNumbers.MAX_SEQ_NO, Long.toString(localCheckpointTracker.getMaxSeqNo()));
+                commitData.put(MAX_UNSAFE_AUTO_ID_TIMESTAMP_COMMIT_ID, Long.toString(maxUnsafeAutoIdTimestamp.get()));
+                commitData.put(HISTORY_UUID_KEY, historyUUID);
+                commitData.put(Engine.MIN_RETAINED_SEQNO, Long.toString(softDeletesPolicy.getMinRetainedSeqNo()));
+                final String currentForceMergeUUID = forceMergeUUID;
+                if (currentForceMergeUUID != null) {
+                    commitData.put(FORCE_MERGE_UUID_KEY, currentForceMergeUUID);
+                }
+                logger.trace("committing writer with commit data [{}]", commitData);
+                return commitData.entrySet().iterator();
+            });
+            shouldPeriodicallyFlushAfterBigMerge.set(false);
+            writer.commit();
+        } catch (final Exception ex) {
+            try {
+                failEngine("lucene commit failed", ex);
+            } catch (final Exception inner) {
+                ex.addSuppressed(inner);
+            }
+            throw ex;
+        } catch (final AssertionError e) {
+            /*
+             * If assertions are enabled, IndexWriter throws AssertionError on commit if any files don't exist, but tests that randomly
+             * throw FileNotFoundException or NoSuchFileException can also hit this.
+             */
+            if (ExceptionsHelper.stackTrace(e).contains("org.apache.lucene.index.IndexWriter.filesExist")) {
+                final EngineException engineException = new EngineException(shardId, "failed to commit engine", e);
+                try {
+                    failEngine("lucene commit failed", engineException);
+                } catch (final Exception inner) {
+                    engineException.addSuppressed(inner);
+                }
+                throw engineException;
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    protected void commitIndexWriter(final IndexWriter writer, final String translogUUID, final long localCheckpoint, final long maxSeqNo) throws IOException {
+        translogManager.ensureCanFlush();
+        try {
+//            final long localCheckpoint = localCheckpointTracker.getProcessedCheckpoint();
+            writer.setLiveCommitData(() -> {
+                /*
+                 * The user data captured above (e.g. local checkpoint) contains data that must be evaluated *before* Lucene flushes
+                 * segments, including the local checkpoint amongst other values. The maximum sequence number is different, we never want
+                 * the maximum sequence number to be less than the last sequence number to go into a Lucene commit, otherwise we run the
+                 * risk of re-using a sequence number for two different documents when restoring from this commit point and subsequently
+                 * writing new documents to the index. Since we only know which Lucene documents made it into the final commit after the
+                 * {@link IndexWriter#commit()} call flushes all documents, we defer computation of the maximum sequence number to the time
+                 * of invocation of the commit data iterator (which occurs after all documents have been flushed to Lucene).
+                 */
+                final Map<String, String> commitData = new HashMap<>(7);
+                commitData.put(Translog.TRANSLOG_UUID_KEY, translogUUID);
+                commitData.put(SequenceNumbers.LOCAL_CHECKPOINT_KEY, Long.toString(localCheckpoint));
+                commitData.put(SequenceNumbers.MAX_SEQ_NO, Long.toString(maxSeqNo));
                 commitData.put(MAX_UNSAFE_AUTO_ID_TIMESTAMP_COMMIT_ID, Long.toString(maxUnsafeAutoIdTimestamp.get()));
                 commitData.put(HISTORY_UUID_KEY, historyUUID);
                 commitData.put(Engine.MIN_RETAINED_SEQNO, Long.toString(softDeletesPolicy.getMinRetainedSeqNo()));

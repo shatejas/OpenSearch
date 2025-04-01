@@ -101,6 +101,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.NoSuchFileException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -111,6 +112,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -154,6 +156,10 @@ public abstract class Engine implements LifecycleAware, Closeable {
     protected final ReentrantReadWriteLock rwl = new ReentrantReadWriteLock();
     protected final ReleasableLock readLock = new ReleasableLock(rwl.readLock());
     protected final ReleasableLock writeLock = new ReleasableLock(rwl.writeLock());
+
+    protected final Map<String, ReentrantReadWriteLock> childLevelReadWriteLocks = new ConcurrentHashMap<>();
+    protected final Map<String, ReleasableLock> childLevelReadLocks = new ConcurrentHashMap<>();
+    protected final Map<String, ReleasableLock> childLevelWriteLocks = new ConcurrentHashMap<>();
     protected final SetOnce<Exception> failedEngine = new SetOnce<>();
     /*
      * on {@code lastWriteNanos} we use System.nanoTime() to initialize this since:

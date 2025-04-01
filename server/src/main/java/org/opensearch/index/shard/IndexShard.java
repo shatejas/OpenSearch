@@ -813,6 +813,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
                              */
                             engine.translogManager().rollTranslogGeneration();
                             engine.fillSeqNoGaps(newPrimaryTerm);
+//                            System.out.println("Updating local checkpoint for shard [" + shardId + "]");
                             replicationTracker.updateLocalCheckpoint(currentRouting.allocationId().getId(), getLocalCheckpoint());
                             primaryReplicaSyncer.accept(this, new ActionListener<ResyncTask>() {
                                 @Override
@@ -1704,7 +1705,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
 
     public void finalizeReplication(SegmentInfos infos) throws IOException {
         if (getReplicationEngine().isPresent()) {
-            System.out.println("Updating segments " + Arrays.toString(infos.asList().toArray()));
+//            System.out.println("Updating segments " + Arrays.toString(infos.asList().toArray()));
             getReplicationEngine().get().updateSegments(infos);
         }
     }
@@ -3203,6 +3204,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
     public void updateLocalCheckpointForShard(final String allocationId, final long checkpoint) {
         assert assertPrimaryMode();
         verifyNotClosed();
+//        System.out.println("Updating local checkpoint for shard [" + shardId + "]");
         replicationTracker.updateLocalCheckpoint(allocationId, checkpoint);
     }
 
