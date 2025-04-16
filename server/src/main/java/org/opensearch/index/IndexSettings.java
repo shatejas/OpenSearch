@@ -997,7 +997,7 @@ public final class IndexSettings {
         replicationType = IndexMetadata.INDEX_REPLICATION_TYPE_SETTING.get(settings);
         isRemoteStoreEnabled = settings.getAsBoolean(IndexMetadata.SETTING_REMOTE_STORE_ENABLED, false);
         isContextAwareEnabled = settings.getAsBoolean(IndexMetadata.SETTING_CONTEXT_AWARE_ENABLED, true);
-        totalTenants = settings.getAsInt(IndexMetadata.SETTING_CONTEXT_AWARE_TENANTS, 1000);
+        totalTenants = settings.getAsInt(IndexMetadata.SETTING_CONTEXT_AWARE_TENANTS, 10000);
         isStoreLocalityPartial = settings.get(
             IndexModule.INDEX_STORE_LOCALITY_SETTING.getKey(),
             IndexModule.DataLocalityType.FULL.toString()

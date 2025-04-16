@@ -406,7 +406,7 @@ public class IndexMetadata implements Diffable<IndexMetadata>, ToXContentFragmen
 
     public static final Setting<Integer> INDEX_CONTEXT_AWARE_TENANTS = Setting.intSetting(
         SETTING_CONTEXT_AWARE_TENANTS,
-        10,
+        10000,
         Property.IndexScope,
         Property.Dynamic
     );
