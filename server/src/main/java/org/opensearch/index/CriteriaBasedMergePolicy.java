@@ -20,6 +20,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * merge policy
+ */
 public class CriteriaBasedMergePolicy extends TieredMergePolicy {
     @Override
     public MergeSpecification findMerges(

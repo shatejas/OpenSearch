@@ -312,7 +312,7 @@ class VersionPropertiesLoader {
           opensearch
       )
     }
-    String qualifier = systemProperties.getProperty("build.version_qualifier", "");
+    String qualifier = systemProperties.getProperty("build.version_qualifier", "alpha1");
     if (qualifier.isEmpty() == false) {
       if (qualifier.matches("(alpha|beta|rc)\\d+") == false) {
         throw new IllegalStateException("Invalid qualifier: " + qualifier)
