@@ -1354,20 +1354,27 @@ public class InternalEngine extends Engine {
 
         while (docIt.hasNext()) {
             IndexableField field = docIt.next();
-            if (field.name().equals("status")) {
-                long statusCode = -1;
-                if (field.stringValue() != null) {
-                    statusCode = Integer.parseInt(field.stringValue()) / 100;
-                } else if (field.binaryValue() != null) {
-                    statusCode = LongPoint.decodeDimension(field.binaryValue().bytes, 0);
+            if (field.name().equals("tenant")) {
+                String tenantId = field.stringValue();
+                if (tenantId == null || tenantId.isBlank()) {
+                    return "-1";
                 }
 
-                // TODO: Fix this
-                if (statusCode > 0 && statusCode <= 3) {
-                    return "200";
-                } else {
-                    return "400";
-                }
+                return tenantId;
+
+//                long statusCode = -1;
+//                if (field.stringValue() != null) {
+//                    statusCode = Integer.parseInt(field.stringValue()) / 100;
+//                } else if (field.binaryValue() != null) {
+//                    statusCode = LongPoint.decodeDimension(field.binaryValue().bytes, 0);
+//                }
+
+//                // TODO: Fix this
+//                if (statusCode > 0 && statusCode <= 3) {
+//                    return "200";
+//                } else {
+//                    return "400";
+//                }
             }
         }
 
@@ -2274,6 +2281,7 @@ public class InternalEngine extends Engine {
                 }
 
                 markForRefreshChildIndexWriterMap.get(criteria).remove(childIndexWriter);
+                attachSegmentInfosWithCriteria(childIndexWriter.getDirectory(), criteria);
             }
         }
 
@@ -2295,6 +2303,13 @@ public class InternalEngine extends Engine {
         }
 
 //        System.out.println("After refresh test count should be " + testCount.get() + " for IndexWriter " + parentIndexWriter);
+    }
+
+    private void attachSegmentInfosWithCriteria(Directory directory, String criteria) throws IOException {
+        SegmentInfos sis = SegmentInfos.readLatestCommit(directory);
+        for (SegmentCommitInfo commitInfo: sis) {
+            commitInfo.info.putAttribute("criteria", criteria);
+        }
     }
 
     private void refreshLastCommittedSegmentInfos() {
