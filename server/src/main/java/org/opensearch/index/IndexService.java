@@ -35,6 +35,7 @@ package org.opensearch.index;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.misc.store.HardlinkCopyDirectoryWrapper;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.store.AlreadyClosedException;
@@ -658,7 +659,7 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
                 Directory localDirectory = directoryFactory.newDirectory(this.indexSettings, path);
                 directory = new CompositeDirectory(localDirectory, remoteDirectory, fileCache);
             } else {
-                directory = directoryFactory.newDirectory(this.indexSettings, path);
+                directory = new HardlinkCopyDirectoryWrapper(directoryFactory.newDirectory(this.indexSettings, path));
             }
             store = new Store(
                 shardId,
