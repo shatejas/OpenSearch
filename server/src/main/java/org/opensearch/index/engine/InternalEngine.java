@@ -134,6 +134,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -224,6 +226,8 @@ public class InternalEngine extends Engine {
     private final KeyedLock<Long> noOpKeyedLock = new KeyedLock<>();
     private final AtomicLong testCount = new AtomicLong(0);
 
+    private static final Integer ACTIVE_INDEX_WRITER_LIMIT = 1000;
+    private final Semaphore indexWriterLimitReached = new Semaphore(ACTIVE_INDEX_WRITER_LIMIT);
 
     /**
      * If multiple writes passed {@link InternalEngine#tryAcquireInFlightDocs(Operation, int)} but they haven't adjusted
@@ -1188,7 +1192,15 @@ public class InternalEngine extends Engine {
         IndexWriter currentIndexWriter = null;
         try {
             String criteria = getGroupingCriteriaForDoc(index.docs());
-            currentIndexWriter = getAssociatedIndexWriterForCriteria(criteria);
+            if (activeChildIndexWriterMap.get(criteria) != null && activeChildIndexWriterMap.get(criteria).isOpen()) {
+                currentIndexWriter = activeChildIndexWriterMap.get(criteria);
+            } else {
+                // Blocks creating more index writers if there are more than the limit
+                // This is not inside the function since its synchronized, we release it in the function if we find
+                // existing
+                indexWriterLimitReached.acquire();
+                currentIndexWriter = newIWForCriteria(criteria);
+            }
 
             // To prevent getting closed.
             try (ReleasableLock releasableLock = childLevelReadLocks.get(currentIndexWriter.toString()).acquire()) {
@@ -1224,13 +1236,15 @@ public class InternalEngine extends Engine {
                  */
                 return new IndexResult(ex, Versions.MATCH_ANY, index.primaryTerm(), index.seqNo());
             } else {
-                throw ex;
+                throw new RuntimeException(ex);
             }
         }
     }
 
-    private synchronized IndexWriter getAssociatedIndexWriterForCriteria(String criteria) throws IOException {
+    private synchronized IndexWriter newIWForCriteria(String criteria) throws IOException, InterruptedException {
         if (activeChildIndexWriterMap.get(criteria) != null && activeChildIndexWriterMap.get(criteria).isOpen()) {
+            //release it here since it will be a duplicate;
+            indexWriterLimitReached.release();
             return activeChildIndexWriterMap.get(criteria);
         }
 
@@ -2214,9 +2228,6 @@ public class InternalEngine extends Engine {
         }
 
         List<Directory> directoryToCombine = new ArrayList<>();
-        long total = 0;
-//        System.out.println();
-//        System.out.println();
         long maxSeqNo = -1, maxLocalCheckpoint = -1;
         for (Map.Entry<String, Set<IndexWriter>> childIndexWritersEntry: markForRefreshChildIndexWriterMap.entrySet()) {
             String criteria = childIndexWritersEntry.getKey();
@@ -2232,7 +2243,6 @@ public class InternalEngine extends Engine {
 //                            total += localCount;
 //                            System.out.println("For key " + entry.getValue() + " doc count " + localCount);
 //                        }
-
                         readerManager.close();
                         break;
                     }
@@ -2264,8 +2274,6 @@ public class InternalEngine extends Engine {
                     return commitData.entrySet().iterator();
                 });
 
-//                System.out.println();
-//                System.out.println();
                 try (ReleasableLock ignored = childLevelWriteLocks.get(childIndexWriter.toString()).acquire()) {
                     childIndexWriter.close();
                 }
@@ -2279,6 +2287,7 @@ public class InternalEngine extends Engine {
                 }
 
                 markForRefreshChildIndexWriterMap.get(criteria).remove(childIndexWriter);
+                indexWriterLimitReached.release();
                 attachSegmentInfosWithCriteria(childIndexWriter.getDirectory(), criteria);
             }
         }
