@@ -226,8 +226,8 @@ public class InternalEngine extends Engine {
     private final KeyedLock<Long> noOpKeyedLock = new KeyedLock<>();
     private final AtomicLong testCount = new AtomicLong(0);
 
-    private static final Integer ACTIVE_INDEX_WRITER_LIMIT = 1000;
-    private final Semaphore indexWriterLimitReached = new Semaphore(ACTIVE_INDEX_WRITER_LIMIT);
+    private Semaphore indexWriterLimitReached;
+    private int iwLimitQueueThreshold;
 
     /**
      * If multiple writes passed {@link InternalEngine#tryAcquireInFlightDocs(Operation, int)} but they haven't adjusted
@@ -274,6 +274,8 @@ public class InternalEngine extends Engine {
         EngineMergeScheduler scheduler = null;
         TranslogManager translogManagerRef = null;
         boolean success = false;
+        this.indexWriterLimitReached = new Semaphore(engineConfig.getIndexSettings().getActiveLimit());
+        this.iwLimitQueueThreshold = engineConfig.getIndexSettings().getIwQueueLengthThreshold();
         try {
             this.lastDeleteVersionPruneTimeMSec = engineConfig.getThreadPool().relativeTimeInMillis();
             mergeScheduler = scheduler = new EngineMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings());
@@ -1198,8 +1200,26 @@ public class InternalEngine extends Engine {
                 // Blocks creating more index writers if there are more than the limit
                 // This is not inside the function since its synchronized, we release it in the function if we find
                 // existing
-                indexWriterLimitReached.acquire();
-                currentIndexWriter = newIWForCriteria(criteria);
+                while (currentIndexWriter == null) {
+
+                    if (indexWriterLimitReached.tryAcquire(60, TimeUnit.SECONDS)) {
+                        currentIndexWriter = newIWForCriteria(criteria);
+                    } else {
+                        currentIndexWriter = activeChildIndexWriterMap.get(criteria);
+                        if (currentIndexWriter == null) {
+                            int threadsWaiting = indexWriterLimitReached.getQueueLength();
+                            logger.warn("Approx threads waiting for index writer creation {}", threadsWaiting);
+                            if (iwLimitQueueThreshold > 0 && threadsWaiting > iwLimitQueueThreshold) {
+                                // if it exceeds flush the index writers
+                                logger.warn("Attempting flush as queue length threshold breached");
+                                flush(true, false);
+                            }
+                        }
+                    }
+                }
+
+
+
             }
 
             // To prevent getting closed.
@@ -1244,6 +1264,7 @@ public class InternalEngine extends Engine {
     private synchronized IndexWriter newIWForCriteria(String criteria) throws IOException, InterruptedException {
         if (activeChildIndexWriterMap.get(criteria) != null && activeChildIndexWriterMap.get(criteria).isOpen()) {
             //release it here since it will be a duplicate;
+            logger.info("Thread already created for criteria {}", criteria);
             indexWriterLimitReached.release();
             return activeChildIndexWriterMap.get(criteria);
         }

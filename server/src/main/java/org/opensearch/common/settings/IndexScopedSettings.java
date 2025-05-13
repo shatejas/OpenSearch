@@ -183,6 +183,10 @@ public final class IndexScopedSettings extends AbstractScopedSettings {
                 IndexSettings.INDEX_SEARCH_IDLE_AFTER,
                 IndexSettings.INDEX_SEARCH_THROTTLED,
                 IndexSettings.INDEX_UNREFERENCED_FILE_CLEANUP,
+                //Multitenancy
+                IndexSettings.MULTI_TENANCY_IW_FLUSH_THRESHOLD,
+                IndexSettings.MULTI_TENANCY_IW_LIMIT,
+
                 IndexFieldDataService.INDEX_FIELDDATA_CACHE_KEY,
                 FieldMapper.IGNORE_MALFORMED_SETTING,
                 FieldMapper.COERCE_SETTING,

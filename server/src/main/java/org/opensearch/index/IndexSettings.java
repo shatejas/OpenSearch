@@ -567,6 +567,27 @@ public final class IndexSettings {
     );
 
     /**
+     * Setting for limit on indexWriters
+     */
+    public static final String MULTI_TENANCY_IW_LIMIT_SETTING = "index.multitenancy.iw.active";
+    public static final Setting<Integer> MULTI_TENANCY_IW_LIMIT = Setting.intSetting(
+        MULTI_TENANCY_IW_LIMIT_SETTING,
+        1000,
+        Property.IndexScope
+    );
+
+    /**
+     * Setting for limit on indexWriters
+     */
+    public static final String MULTI_TENANCY_IW_FLUSH_THRESHOLD_SETTING = "index.multitenancy.iw.flush.threshold";
+    public static final Setting<Integer> MULTI_TENANCY_IW_FLUSH_THRESHOLD = Setting.intSetting(
+        MULTI_TENANCY_IW_FLUSH_THRESHOLD_SETTING,
+        -1,
+        Property.IndexScope,
+        Property.Dynamic
+    );
+
+    /**
      * Marks an index to be searched throttled. This means that never more than one shard of such an index will be searched concurrently
      */
     public static final Setting<Boolean> INDEX_SEARCH_THROTTLED = Setting.boolSetting(
@@ -914,6 +935,17 @@ public final class IndexSettings {
 
     private final boolean isCompositeIndex;
 
+    private final int activeLimit;
+    private final int iwQueueLengthThreshold;
+
+    public int getActiveLimit() {
+        return activeLimit;
+    }
+
+    public int getIwQueueLengthThreshold() {
+        return iwQueueLengthThreshold;
+    }
+
     /**
      * Returns the default search fields for this index.
      */
@@ -1009,6 +1041,8 @@ public final class IndexSettings {
             extendedCompatibilitySnapshotVersion = Version.CURRENT.minimumIndexCompatibilityVersion();
         }
 
+        this.activeLimit = settings.getAsInt(MULTI_TENANCY_IW_LIMIT_SETTING, 1);
+        this.iwQueueLengthThreshold = settings.getAsInt(MULTI_TENANCY_IW_FLUSH_THRESHOLD_SETTING, -1);
         this.searchThrottled = INDEX_SEARCH_THROTTLED.get(settings);
         this.shouldCleanupUnreferencedFiles = INDEX_UNREFERENCED_FILE_CLEANUP.get(settings);
         this.queryStringLenient = QUERY_STRING_LENIENT_SETTING.get(settings);
