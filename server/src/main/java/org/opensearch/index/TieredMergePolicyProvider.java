@@ -130,7 +130,7 @@ import org.opensearch.core.common.unit.ByteSizeValue;
  */
 
 public final class TieredMergePolicyProvider implements MergePolicyProvider {
-    private final MergePolicy tieredMergePolicy = NoMergePolicy.INSTANCE;
+    private final OpenSearchTieredMergePolicy tieredMergePolicy = new OpenSearchTieredMergePolicy();
 
     private final Logger logger;
     private final boolean mergesEnabled;
@@ -221,34 +221,32 @@ public final class TieredMergePolicyProvider implements MergePolicyProvider {
         }
         maxMergeAtOnce = adjustMaxMergeAtOnceIfNeeded(maxMergeAtOnce, segmentsPerTier);
         tieredMergePolicy.setNoCFSRatio(indexSettings.getValue(INDEX_COMPOUND_FORMAT_SETTING));
-        /*
         tieredMergePolicy.setForceMergeDeletesPctAllowed(forceMergeDeletesPctAllowed);
         tieredMergePolicy.setFloorSegmentMB(floorSegment.getMbFrac());
         tieredMergePolicy.setMaxMergeAtOnce(maxMergeAtOnce);
         tieredMergePolicy.setMaxMergedSegmentMB(maxMergedSegment.getMbFrac());
         tieredMergePolicy.setSegmentsPerTier(segmentsPerTier);
         tieredMergePolicy.setDeletesPctAllowed(deletesPctAllowed);
-        */
     }
 
     void setSegmentsPerTier(Double segmentsPerTier) {
-        //tieredMergePolicy.setSegmentsPerTier(segmentsPerTier);
+        tieredMergePolicy.setSegmentsPerTier(segmentsPerTier);
     }
 
     void setMaxMergedSegment(ByteSizeValue maxMergedSegment) {
-        //tieredMergePolicy.setMaxMergedSegmentMB(maxMergedSegment.getMbFrac());
+        tieredMergePolicy.setMaxMergedSegmentMB(maxMergedSegment.getMbFrac());
     }
 
     void setMaxMergesAtOnce(Integer maxMergeAtOnce) {
-        //tieredMergePolicy.setMaxMergeAtOnce(maxMergeAtOnce);
+        tieredMergePolicy.setMaxMergeAtOnce(maxMergeAtOnce);
     }
 
     void setFloorSegmentSetting(ByteSizeValue floorSegementSetting) {
-        //tieredMergePolicy.setFloorSegmentMB(floorSegementSetting.getMbFrac());
+        tieredMergePolicy.setFloorSegmentMB(floorSegementSetting.getMbFrac());
     }
 
     void setExpungeDeletesAllowed(Double value) {
-        //tieredMergePolicy.setForceMergeDeletesPctAllowed(value);
+        tieredMergePolicy.setForceMergeDeletesPctAllowed(value);
     }
 
     void setNoCFSRatio(Double noCFSRatio) {
@@ -256,7 +254,7 @@ public final class TieredMergePolicyProvider implements MergePolicyProvider {
     }
 
     void setDeletesPctAllowed(Double deletesPctAllowed) {
-        //tieredMergePolicy.setDeletesPctAllowed(deletesPctAllowed);
+        tieredMergePolicy.setDeletesPctAllowed(deletesPctAllowed);
     }
 
     private int adjustMaxMergeAtOnceIfNeeded(int maxMergeAtOnce, double segmentsPerTier) {
@@ -307,8 +305,7 @@ public final class TieredMergePolicyProvider implements MergePolicyProvider {
     @Override
     public String toString() {
         return "TieredMergePolicyProvider{"
-            + "expungeDeletesAllowed=";
-            /*
+            + "expungeDeletesAllowed="
             + tieredMergePolicy.getForceMergeDeletesPctAllowed()
             + ", floorSegment="
             + tieredMergePolicy.getFloorSegmentMB()
@@ -321,7 +318,6 @@ public final class TieredMergePolicyProvider implements MergePolicyProvider {
             + ", deletesPctAllowed="
             + tieredMergePolicy.getDeletesPctAllowed()
             + '}';
-            */
     }
 
 }
