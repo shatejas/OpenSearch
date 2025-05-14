@@ -1203,10 +1203,11 @@ public class InternalEngine extends Engine {
                 // This is not inside the function since its synchronized, we release it in the function if we find
                 // existing
                 while (currentIndexWriter == null) {
-
+                    logger.info("Permits available {}", indexWriterLimitReached.availablePermits());
                     if (indexWriterLimitReached.tryAcquire(60, TimeUnit.SECONDS)) {
                         currentIndexWriter = newIWForCriteria(criteria);
                     } else {
+                        logger.info("keys in active writers {}", activeChildIndexWriterMap.keySet());
                         currentIndexWriter = activeChildIndexWriterMap.get(criteria);
                         if (currentIndexWriter == null) {
                             int threadsWaiting = indexWriterLimitReached.getQueueLength();
@@ -1216,6 +1217,8 @@ public class InternalEngine extends Engine {
                                 logger.warn("Attempting flush as queue length threshold breached");
                                 flush(true, false);
                             }
+                        } else {
+                            logger.info("index writer for criteria {} is already open", criteria);
                         }
                     }
                 }
@@ -1271,6 +1274,7 @@ public class InternalEngine extends Engine {
             return activeChildIndexWriterMap.get(criteria);
         }
 
+        logger.info("Creating a new IndexWriter for criteria {}", criteria);
         MergeScheduler childMergeScheduler = new OpenSearchConcurrentMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings());
         CombinedDeletionPolicy childCombinedDeletionPolicy = new CombinedDeletionPolicy(
             logger,
