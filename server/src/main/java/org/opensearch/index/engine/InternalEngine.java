@@ -43,6 +43,7 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.LiveIndexWriterConfig;
+import org.apache.lucene.index.LuceneUtils;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.MergeScheduler;
 import org.apache.lucene.index.SegmentCommitInfo;
@@ -105,6 +106,7 @@ import org.opensearch.index.seqno.LocalCheckpointTracker;
 import org.opensearch.index.seqno.SeqNoStats;
 import org.opensearch.index.seqno.SequenceNumbers;
 import org.opensearch.index.shard.OpenSearchMergePolicy;
+import org.opensearch.index.store.Store;
 import org.opensearch.index.translog.InternalTranslogManager;
 import org.opensearch.index.translog.Translog;
 import org.opensearch.index.translog.TranslogCorruptedException;
@@ -118,8 +120,7 @@ import org.opensearch.threadpool.ThreadPool;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.math.RoundingMode;
-import java.util.AbstractList;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -144,6 +145,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -2316,34 +2318,10 @@ public class InternalEngine extends Engine {
 //        System.out.println("Total actual child level doc count " + total);
 
         if (!directoryToCombine.isEmpty()) {
-            // addIndices maps files to a virtual space, if too many directories are mapped at once it can run out of virtual space
-            // making sure we limit how many files are mapped
-            List<List<Directory>> partitionedList = new AbstractList<>() {
-                private int start = 0;
-                private int size = 2;
-
-                @Override
-                public List<Directory> get(int index) {
-                    if (index >= size()) {
-                        throw new IndexOutOfBoundsException();
-                    }
-                    int start = index * size;
-                    int end = Math.min(start + size, directoryToCombine.size());
-                    return directoryToCombine.subList(start, end);
-                }
-
-                @Override
-                public int size() {
-                    return Math.ceilDiv(directoryToCombine.size(), size);
-                }
-            };
-
-            for (List<Directory> partition: partitionedList) {
-                parentIndexWriter.addIndexes(partition.toArray(new Directory[0]));
-                // need to close to release mapped files
-                for (Directory directory: partition) {
-                    directory.close();
-                }
+            parentIndexWriter.addIndexes(directoryToCombine.toArray(new Directory[0]));
+//            System.out.println("Refreshed parent IndexWriter count " + testCount.get() + " indexWriter id: " + parentIndexWriter);
+            for (Directory directory: directoryToCombine) {
+                directory.close();
             }
 
             if (doCommit) {
