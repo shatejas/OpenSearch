@@ -64,6 +64,7 @@ import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.LockObtainFailedException;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.InfoStream;
@@ -120,6 +121,7 @@ import org.opensearch.threadpool.ThreadPool;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1195,7 +1197,7 @@ public class InternalEngine extends Engine {
         index.parsedDoc().version().setLongValue(plan.versionForIndexing);
         IndexWriter currentIndexWriter = null;
         try {
-            String criteria = getGroupingCriteriaForDoc(index.docs());
+            String criteria = getGroupingCriteriaForDoc(index.docs()).trim();
             if (activeChildIndexWriterMap.get(criteria) != null && activeChildIndexWriterMap.get(criteria).isOpen()) {
                 currentIndexWriter = activeChildIndexWriterMap.get(criteria);
             } else {
@@ -2324,9 +2326,17 @@ public class InternalEngine extends Engine {
         if (!directoryToCombine.isEmpty()) {
             parentIndexWriter.addIndexes(directoryToCombine.toArray(new Directory[0]));
 //            System.out.println("Refreshed parent IndexWriter count " + testCount.get() + " indexWriter id: " + parentIndexWriter);
+
+            List<Path> directoryPaths = new ArrayList<>(directoryToCombine.size());
             for (Directory directory: directoryToCombine) {
+                Path directoryPath = directory instanceof FSDirectory ? ((FSDirectory) directory).getDirectory() : null;
+                if (directoryPath != null) {
+                    directoryPaths.add(directoryPath);
+                }
                 directory.close();
             }
+
+            IOUtils.rm(directoryPaths.toArray(new Path[0]));
 
             if (doCommit) {
                 commitIndexWriter(parentIndexWriter, translogManager.getTranslogUUID(), maxLocalCheckpoint, maxSeqNo);

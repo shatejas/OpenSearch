@@ -573,7 +573,8 @@ public final class IndexSettings {
     public static final Setting<Integer> MULTI_TENANCY_IW_LIMIT = Setting.intSetting(
         MULTI_TENANCY_IW_LIMIT_SETTING,
         1000,
-        Property.IndexScope
+        Property.IndexScope,
+        Property.Dynamic
     );
 
     /**
@@ -935,7 +936,7 @@ public final class IndexSettings {
 
     private final boolean isCompositeIndex;
 
-    private final int activeLimit;
+    private int activeLimit;
     private final int iwQueueLengthThreshold;
 
     public int getActiveLimit() {
@@ -1041,7 +1042,7 @@ public final class IndexSettings {
             extendedCompatibilitySnapshotVersion = Version.CURRENT.minimumIndexCompatibilityVersion();
         }
 
-        this.activeLimit = settings.getAsInt(MULTI_TENANCY_IW_LIMIT_SETTING, 1);
+        this.activeLimit = settings.getAsInt(MULTI_TENANCY_IW_LIMIT_SETTING, 1000);
         this.iwQueueLengthThreshold = settings.getAsInt(MULTI_TENANCY_IW_FLUSH_THRESHOLD_SETTING, -1);
         this.searchThrottled = INDEX_SEARCH_THROTTLED.get(settings);
         this.shouldCleanupUnreferencedFiles = INDEX_UNREFERENCED_FILE_CLEANUP.get(settings);
@@ -1234,6 +1235,10 @@ public final class IndexSettings {
             IndexMetadata.INDEX_REMOTE_TRANSLOG_REPOSITORY_SETTING,
             this::setRemoteStoreTranslogRepository
         );
+    }
+
+    private void setActiveLimit(int activeLimit) {
+        this.activeLimit = activeLimit;
     }
 
     private void setSearchIdleAfter(TimeValue searchIdleAfter) {

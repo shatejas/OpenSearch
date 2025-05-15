@@ -659,7 +659,7 @@ public class IndexService extends AbstractIndexComponent implements IndicesClust
                 Directory localDirectory = directoryFactory.newDirectory(this.indexSettings, path);
                 directory = new CompositeDirectory(localDirectory, remoteDirectory, fileCache);
             } else {
-                directory = new HardlinkCopyDirectoryWrapper(directoryFactory.newDirectory(this.indexSettings, path));
+                directory = directoryFactory.newDirectory(this.indexSettings, path);
             }
             store = new Store(
                 shardId,
