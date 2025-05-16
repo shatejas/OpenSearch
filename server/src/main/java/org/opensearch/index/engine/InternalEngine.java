@@ -179,7 +179,7 @@ public class InternalEngine extends Engine {
 
     // This is required to prevent cyclic dependency between reader refresh and parentIndexWriter update.
     // We are updating parent indexwriter on refresh and we are performing refresh when there is update.
-    private final Map<String, ExternalReaderManager> groupLevelExternalReaderManagersMap = new ConcurrentHashMap<>();
+    //private final Map<String, ExternalReaderManager> groupLevelExternalReaderManagersMap = new ConcurrentHashMap<>();
 
     @Nullable
     protected final String historyUUID;
@@ -374,7 +374,7 @@ public class InternalEngine extends Engine {
             if (success == false) {
                 IOUtils.closeWhileHandlingException(activeChildIndexWriterMap.values());
 //                IOUtils.closeWhileHandlingException(flushingIndexWriterList);
-                IOUtils.closeWhileHandlingException(groupLevelExternalReaderManagersMap.values());
+//                IOUtils.closeWhileHandlingException(groupLevelExternalReaderManagersMap.values());
 //                IOUtils.closeWhileHandlingException(childMergeSchedulerList);
                 IOUtils.closeWhileHandlingException(writer, translogManagerRef, internalReaderManager, externalReaderManager, scheduler);
                 if (isClosed.get() == false) {
@@ -636,14 +636,15 @@ public class InternalEngine extends Engine {
         } finally {
             if (success == false) { // release everything we created on a failure
                 IOUtils.closeWhileHandlingException(internalReaderManager, writer);
-                IOUtils.closeWhileHandlingException(groupLevelExternalReaderManagersMap.values());
+    //            IOUtils.closeWhileHandlingException(groupLevelExternalReaderManagersMap.values());
             }
         }
     }
 
     @Override
     protected List<ReferenceManager<OpenSearchDirectoryReader>> getChildLevelReferenceManagerList() {
-        return new ArrayList<>(groupLevelExternalReaderManagersMap.values());
+        return null;
+        //return new ArrayList<>(groupLevelExternalReaderManagersMap.values());
     }
 
     @Override
@@ -1302,7 +1303,7 @@ public class InternalEngine extends Engine {
         // initial shard is warmed up we call an explicit refresh on child level Reader manager.
         childLevelReaderManager.maybeRefreshBlocking();
         assert childLevelReaderManager.isWarmedUp;
-        groupLevelExternalReaderManagersMap.put(pathString, childLevelReaderManager);
+    //    groupLevelExternalReaderManagersMap.put(pathString, childLevelReaderManager);
         currentIndexWriterMap.put(pathString, childIndexWriter);
         activeChildIndexWriterMap.put(criteria, childIndexWriter);
         return childIndexWriter;
@@ -2056,6 +2057,7 @@ public class InternalEngine extends Engine {
                 // increment the ref just to ensure nobody closes the store during a refresh
                 try {
                     // Refresh child readers first so that Segments are persisted on disk.
+                    /**
                     if (block) {
                         for (Map.Entry<String, ExternalReaderManager> groupLevelExternalReaderManagerEntry: groupLevelExternalReaderManagersMap.entrySet()) {
                             IndexWriter currentIndexWriter = currentIndexWriterMap.get(groupLevelExternalReaderManagerEntry.getKey());
@@ -2080,7 +2082,7 @@ public class InternalEngine extends Engine {
                                 }
                             }
                         }
-                    }
+                    } */
 
                     refreshParentIndexWriter(false);
                     // even though we maintain 2 managers we really do the heavy-lifting only once.
@@ -2248,6 +2250,7 @@ public class InternalEngine extends Engine {
 
     private synchronized void refreshParentIndexWriter(final boolean doCommit) throws IOException {
 //        System.out.println("Refreshing parent IndexWriter for map size " + groupLevelExternalReaderManagersMap.size() + " for IndexWriter " + parentIndexWriter);
+       // Marking for refreshing
         for (Map.Entry<String, IndexWriter> indexWriterEntry: activeChildIndexWriterMap.entrySet()) {
             String criteria = indexWriterEntry.getKey();
             IndexWriter writer = indexWriterEntry.getValue();
@@ -2261,7 +2264,11 @@ public class InternalEngine extends Engine {
         for (Map.Entry<String, Set<IndexWriter>> childIndexWritersEntry: markForRefreshChildIndexWriterMap.entrySet()) {
             String criteria = childIndexWritersEntry.getKey();
             for (IndexWriter childIndexWriter: childIndexWritersEntry.getValue()) {
+                childIndexWriter.flush();
                 directoryToCombine.add(childIndexWriter.getDirectory());
+                /**
+                 *
+
                 for (Map.Entry<String, String> entry : childIndexWriter.getLiveCommitData()) {
                     if (entry.getKey().equals(DIRECTORY_PATH_KEY)) {
 //                        System.out.println("Removing key from directory reader manager " + entry.getValue());
@@ -2276,6 +2283,7 @@ public class InternalEngine extends Engine {
                         break;
                     }
                 }
+                 */
 
                 long localCheckpoint = localCheckpointTracker.getProcessedCheckpoint();
                 childIndexWriter.setLiveCommitData(() -> {
@@ -2692,9 +2700,11 @@ public class InternalEngine extends Engine {
                     internalReaderManager.removeListener(versionMap);
                 }
                 try {
+                    /*
                     for (ExternalReaderManager readerManager: groupLevelExternalReaderManagersMap.values()) {
                         IOUtils.close(readerManager, readerManager.internalReaderManager);
                     }
+                    */
 
                     IOUtils.close(externalReaderManager, internalReaderManager);
                 } catch (Exception e) {

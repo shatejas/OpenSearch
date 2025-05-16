@@ -1173,13 +1173,15 @@ public abstract class Engine implements LifecycleAware, Closeable {
     public abstract List<Segment> segments(boolean verbose);
 
     public boolean refreshNeeded() {
+        return true;
+        /*
         if (store.tryIncRef()) {
 //            System.out.println("Inc ref called during Engine refresh needed");
             /*
               we need to inc the store here since we acquire a searcher and that might keep a file open on the
               store. this violates the assumption that all files are closed when
               the store is closed so we need to make sure we increment it here
-             */
+
 
             List<ReferenceManager<OpenSearchDirectoryReader>> childDirectoryReaderReferenceList = getChildLevelReferenceManagerList();
             try {
@@ -1205,7 +1207,9 @@ public abstract class Engine implements LifecycleAware, Closeable {
 //                System.out.println("Dec ref called during Engine refresh needed");
             }
         }
+
         return false;
+    */
     }
 
     /**
