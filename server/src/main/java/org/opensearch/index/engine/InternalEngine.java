@@ -47,6 +47,7 @@ import org.apache.lucene.index.LuceneUtils;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.MergeScheduler;
 import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.SoftDeletesRetentionMergePolicy;
 import org.apache.lucene.index.StandardDirectoryReader;
@@ -93,6 +94,7 @@ import org.opensearch.core.index.AppendOnlyIndexOperationRetryException;
 import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.VersionType;
+import org.opensearch.index.codec.CriteriaBasedCodec;
 import org.opensearch.index.fieldvisitor.IdOnlyFieldVisitor;
 import org.opensearch.index.mapper.IdFieldMapper;
 import org.opensearch.index.mapper.ParseContext;
@@ -1248,7 +1250,7 @@ public class InternalEngine extends Engine {
 
 //        IndexWriterConfig indexWriterConfig = getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler);
 //        System.out.println("Creating new childIndexWriter " + pathString);
-        IndexWriter childIndexWriter = createWriter(store.newTempDirectory(pathString), getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler));
+        IndexWriter childIndexWriter = createWriter(store.newTempDirectory(pathString), getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler, criteria));
         final Map<String, String> userData = new HashMap<>();
         userData.put(DIRECTORY_PATH_KEY, pathString);
         childIndexWriter.setLiveCommitData(userData.entrySet());
@@ -1267,7 +1269,7 @@ public class InternalEngine extends Engine {
         return childIndexWriter;
     }
 
-    private IndexWriterConfig getIndexWriterConfig(CombinedDeletionPolicy childCombinedDeletionPolicy, MergeScheduler childMergeScheduler) {
+    private IndexWriterConfig getIndexWriterConfig(CombinedDeletionPolicy childCombinedDeletionPolicy, MergeScheduler childMergeScheduler, String criteria) {
         final IndexWriterConfig iwc = new IndexWriterConfig(engineConfig.getAnalyzer());
         iwc.setCommitOnClose(true);
         iwc.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
@@ -1318,7 +1320,7 @@ public class InternalEngine extends Engine {
         iwc.setMergePolicy(new OpenSearchMergePolicy(mergePolicy));
         iwc.setSimilarity(engineConfig.getSimilarity());
         iwc.setRAMBufferSizeMB(engineConfig.getIndexingBufferSize().getMbFrac());
-        iwc.setCodec(engineConfig.getCodec());
+        iwc.setCodec(new CriteriaBasedCodec(engineConfig.getCodec(), criteria));
         iwc.setUseCompoundFile(engineConfig.useCompoundFile());
         if (config().getIndexSort() != null) {
             iwc.setIndexSort(config().getIndexSort());
@@ -2729,7 +2731,14 @@ public class InternalEngine extends Engine {
         if (Assertions.ENABLED) {
             return new AssertingIndexWriter(directory, iwc);
         } else {
-            return new IndexWriter(directory, iwc);
+            return new IndexWriter(directory, iwc){
+
+                @Override
+                protected void mergeSuccess(MergePolicy.OneMerge merge) {
+                    SegmentInfo segmentInfo = merge.getMergeInfo().info;
+                    segmentInfo.putAttribute("criteria", merge.segments.getFirst().info.getAttribute("criteria"));
+                }
+            };
         }
     }
 

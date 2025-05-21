@@ -44,7 +44,7 @@ public class CriteriaBasedMergePolicy extends TieredMergePolicy {
                 }
 
                 final MergeSpecification tieredMergePolicySpec =
-                    super.findMerges(mergeTrigger, infos, mergeContext);
+                    super.findMerges(mergeTrigger, newSIS, mergeContext);
                 if (tieredMergePolicySpec != null) {
                     if (spec == null) {
                         spec = new MergeSpecification();
