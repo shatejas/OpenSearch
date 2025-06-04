@@ -47,6 +47,7 @@ import org.apache.lucene.index.LuceneUtils;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.MergeScheduler;
 import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.SoftDeletesRetentionMergePolicy;
 import org.apache.lucene.index.StandardDirectoryReader;
@@ -94,6 +95,7 @@ import org.opensearch.core.index.AppendOnlyIndexOperationRetryException;
 import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.VersionType;
+import org.opensearch.index.codec.CriteriaBasedCodec;
 import org.opensearch.index.fieldvisitor.IdOnlyFieldVisitor;
 import org.opensearch.index.mapper.IdFieldMapper;
 import org.opensearch.index.mapper.ParseContext;
@@ -1290,7 +1292,7 @@ public class InternalEngine extends Engine {
 
 //        IndexWriterConfig indexWriterConfig = getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler);
 //        System.out.println("Creating new childIndexWriter " + pathString);
-        IndexWriter childIndexWriter = createWriter(store.newTempDirectory(pathString), getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler));
+        IndexWriter childIndexWriter = createWriter(store.newTempDirectory(pathString), getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler, criteria));
         final Map<String, String> userData = new HashMap<>();
         userData.put(DIRECTORY_PATH_KEY, pathString);
         childIndexWriter.setLiveCommitData(userData.entrySet());
@@ -1309,7 +1311,9 @@ public class InternalEngine extends Engine {
         return childIndexWriter;
     }
 
-    private IndexWriterConfig getIndexWriterConfig(CombinedDeletionPolicy childCombinedDeletionPolicy, MergeScheduler childMergeScheduler) {
+    private IndexWriterConfig getIndexWriterConfig(CombinedDeletionPolicy childCombinedDeletionPolicy,
+                                                   MergeScheduler childMergeScheduler,
+                                                   String criteria) {
         final IndexWriterConfig iwc = new IndexWriterConfig(engineConfig.getAnalyzer());
         iwc.setCommitOnClose(true);
         iwc.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
@@ -1322,6 +1326,7 @@ public class InternalEngine extends Engine {
         } catch (Exception ignore) {}
         iwc.setInfoStream(verbose ? InfoStream.getDefault() : new LoggerInfoStream(logger));
         iwc.setMergeScheduler(childMergeScheduler);
+        iwc.setCodec(new CriteriaBasedCodec(engineConfig.getCodec(), criteria));
         // Give us the opportunity to upgrade old segments while performing
         // background merges
         MergePolicy mergePolicy = config().getMergePolicy();
@@ -1360,7 +1365,6 @@ public class InternalEngine extends Engine {
         iwc.setMergePolicy(new OpenSearchMergePolicy(mergePolicy));
         iwc.setSimilarity(engineConfig.getSimilarity());
         iwc.setRAMBufferSizeMB(engineConfig.getIndexingBufferSize().getMbFrac());
-        iwc.setCodec(engineConfig.getCodec());
         iwc.setUseCompoundFile(engineConfig.useCompoundFile());
         if (config().getIndexSort() != null) {
             iwc.setIndexSort(config().getIndexSort());
@@ -2266,24 +2270,6 @@ public class InternalEngine extends Engine {
             for (IndexWriter childIndexWriter: childIndexWritersEntry.getValue()) {
                 childIndexWriter.flush();
                 directoryToCombine.add(childIndexWriter.getDirectory());
-                /**
-                 *
-
-                for (Map.Entry<String, String> entry : childIndexWriter.getLiveCommitData()) {
-                    if (entry.getKey().equals(DIRECTORY_PATH_KEY)) {
-//                        System.out.println("Removing key from directory reader manager " + entry.getValue());
-                        ExternalReaderManager readerManager = groupLevelExternalReaderManagersMap.remove(entry.getValue());
-                        readerManager.maybeRefreshBlocking();
-//                        try(IndexReader reader = acquireSearcher("refresh_needed", SearcherScope.EXTERNAL, Function.identity(), readerManager).getIndexReader()) {
-//                            long localCount = docsStats(reader).getCount();
-//                            total += localCount;
-//                            System.out.println("For key " + entry.getValue() + " doc count " + localCount);
-//                        }
-                        readerManager.close();
-                        break;
-                    }
-                }
-                 */
 
                 long localCheckpoint = localCheckpointTracker.getProcessedCheckpoint();
                 childIndexWriter.setLiveCommitData(() -> {
@@ -2325,15 +2311,11 @@ public class InternalEngine extends Engine {
 
                 markForRefreshChildIndexWriterMap.get(criteria).remove(childIndexWriter);
                 indexWriterLimitReached.release();
-                attachSegmentInfosWithCriteria(childIndexWriter.getDirectory(), criteria);
             }
         }
 
-//        System.out.println("Total actual child level doc count " + total);
-
         if (!directoryToCombine.isEmpty()) {
             parentIndexWriter.addIndexes(directoryToCombine.toArray(new Directory[0]));
-//            System.out.println("Refreshed parent IndexWriter count " + testCount.get() + " indexWriter id: " + parentIndexWriter);
 
             List<Path> directoryPaths = new ArrayList<>(directoryToCombine.size());
             for (Directory directory: directoryToCombine) {
@@ -2353,16 +2335,8 @@ public class InternalEngine extends Engine {
         } else if (doCommit){
             commitIndexWriter(parentIndexWriter, translogManager.getTranslogUUID());
         }
-
-//        System.out.println("After refresh test count should be " + testCount.get() + " for IndexWriter " + parentIndexWriter);
     }
 
-    private void attachSegmentInfosWithCriteria(Directory directory, String criteria) throws IOException {
-        SegmentInfos sis = SegmentInfos.readLatestCommit(directory);
-        for (SegmentCommitInfo commitInfo: sis) {
-            commitInfo.info.putAttribute("criteria", criteria);
-        }
-    }
 
     private void refreshLastCommittedSegmentInfos() {
         /*
@@ -2781,9 +2755,21 @@ public class InternalEngine extends Engine {
     // pkg-private for testing
     IndexWriter createWriter(Directory directory, IndexWriterConfig iwc) throws IOException {
         if (Assertions.ENABLED) {
-            return new AssertingIndexWriter(directory, iwc);
+            return new AssertingIndexWriter(directory, iwc) {
+                @Override
+                protected void mergeSuccess(MergePolicy.OneMerge merge) {
+                    SegmentInfo segmentInfo = merge.getMergeInfo().info;
+                    segmentInfo.putAttribute("criteria", merge.segments.getFirst().info.getAttribute("criteria"));
+                }
+            };
         } else {
-            return new IndexWriter(directory, iwc);
+            return new IndexWriter(directory, iwc) {
+                @Override
+                protected void mergeSuccess(MergePolicy.OneMerge merge) {
+                    SegmentInfo segmentInfo = merge.getMergeInfo().info;
+                    segmentInfo.putAttribute("criteria", merge.segments.getFirst().info.getAttribute("criteria"));
+                }
+            };
         }
     }
 
