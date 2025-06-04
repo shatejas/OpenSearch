@@ -2729,7 +2729,13 @@ public class InternalEngine extends Engine {
     // pkg-private for testing
     IndexWriter createWriter(Directory directory, IndexWriterConfig iwc) throws IOException {
         if (Assertions.ENABLED) {
-            return new AssertingIndexWriter(directory, iwc);
+            return new AssertingIndexWriter(directory, iwc) {
+                @Override
+                protected void mergeSuccess(MergePolicy.OneMerge merge) {
+                    SegmentInfo segmentInfo = merge.getMergeInfo().info;
+                    segmentInfo.putAttribute("criteria", merge.segments.getFirst().info.getAttribute("criteria"));
+                }
+            };
         } else {
             return new IndexWriter(directory, iwc){
 

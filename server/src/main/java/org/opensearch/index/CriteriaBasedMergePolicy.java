@@ -57,4 +57,46 @@ public class CriteriaBasedMergePolicy extends TieredMergePolicy {
 
         return spec;
     }
+
+    @Override
+    public MergeSpecification findForcedMerges(SegmentInfos infos, int maxSegmentCount, Map<SegmentCommitInfo, Boolean> segmentsToMerge, MergeContext mergeContext) throws IOException {
+        MergeSpecification spec = null;
+        final Set<SegmentCommitInfo> merging = mergeContext.getMergingSegments();
+        final Map<String, List<SegmentCommitInfo>> commitInfos = new HashMap<>();
+        final Map<String, Map<SegmentCommitInfo, Boolean>> criteriaBasedSegmentInfoToMerge = new HashMap<>();
+        for (SegmentCommitInfo si : infos) {
+            if (merging.contains(si)) {
+                continue;
+            }
+
+            final String dwptGroupNumber = si.info.getAttribute("criteria");
+            commitInfos.computeIfAbsent(dwptGroupNumber, k -> new ArrayList<>()).add(si);
+        }
+
+        for (Map.Entry<SegmentCommitInfo, Boolean> entry : segmentsToMerge.entrySet()) {
+            final String dwptGroupNumber = entry.getKey().info.getAttribute("criteria");
+            criteriaBasedSegmentInfoToMerge.computeIfAbsent(dwptGroupNumber, k -> new HashMap<>()).put(entry.getKey(), entry.getValue());
+        }
+
+        for (String dwptGroupNumber : commitInfos.keySet()) {
+            if (commitInfos.get(dwptGroupNumber).size() > 1) {
+                final SegmentInfos newSIS = new SegmentInfos(infos.getIndexCreatedVersionMajor());
+                for (SegmentCommitInfo info : commitInfos.get(dwptGroupNumber)) {
+                    newSIS.add(info);
+                }
+
+                final MergeSpecification tieredMergePolicySpec =
+                        super.findForcedMerges(newSIS, maxSegmentCount, criteriaBasedSegmentInfoToMerge.get(dwptGroupNumber), mergeContext);
+                if (tieredMergePolicySpec != null) {
+                    if (spec == null) {
+                        spec = new MergeSpecification();
+                    }
+
+                    spec.merges.addAll(tieredMergePolicySpec.merges);
+                }
+            }
+        }
+
+        return spec;
+    }
 }

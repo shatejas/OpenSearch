@@ -49,13 +49,13 @@ import java.util.Map;
  */
 final class OpenSearchTieredMergePolicy extends FilterMergePolicy {
 
-    final TieredMergePolicy regularMergePolicy;
-    final TieredMergePolicy forcedMergePolicy;
+    final CriteriaBasedMergePolicy regularMergePolicy;
+    final CriteriaBasedMergePolicy forcedMergePolicy;
 
     OpenSearchTieredMergePolicy() {
-        super(new TieredMergePolicy());
-        regularMergePolicy = (TieredMergePolicy) in;
-        forcedMergePolicy = new TieredMergePolicy();
+        super(new CriteriaBasedMergePolicy());
+        regularMergePolicy = (CriteriaBasedMergePolicy) in;
+        forcedMergePolicy = new CriteriaBasedMergePolicy();
         forcedMergePolicy.setMaxMergedSegmentMB(Double.POSITIVE_INFINITY); // unlimited
     }
 
