@@ -1290,8 +1290,6 @@ public class InternalEngine extends Engine {
 
         String pathString = "temp_" + criteria + "_" + UUID.randomUUID();
 
-//        IndexWriterConfig indexWriterConfig = getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler);
-//        System.out.println("Creating new childIndexWriter " + pathString);
         IndexWriter childIndexWriter = createWriter(store.newTempDirectory(pathString), getIndexWriterConfig(childCombinedDeletionPolicy, childMergeScheduler, criteria));
         final Map<String, String> userData = new HashMap<>();
         userData.put(DIRECTORY_PATH_KEY, pathString);
@@ -1300,12 +1298,6 @@ public class InternalEngine extends Engine {
         childLevelReadWriteLocks.put(childIndexWriter.toString(), childLock);
         childLevelReadLocks.put(childIndexWriter.toString(), new ReleasableLock(childLock.readLock()));
         childLevelWriteLocks.put(childIndexWriter.toString(), new ReleasableLock(childLock.writeLock()));
-        ExternalReaderManager childLevelReaderManager = createReaderManager(new RefreshWarmerListener(logger, new AtomicBoolean(isClosed.get()), engineConfig), childIndexWriter);
-        // Initial refresh gets called when shards gets created in IndexShard.finaliseRecovery. So in oder to ensure
-        // initial shard is warmed up we call an explicit refresh on child level Reader manager.
-        childLevelReaderManager.maybeRefreshBlocking();
-        assert childLevelReaderManager.isWarmedUp;
-    //    groupLevelExternalReaderManagersMap.put(pathString, childLevelReaderManager);
         currentIndexWriterMap.put(pathString, childIndexWriter);
         activeChildIndexWriterMap.put(criteria, childIndexWriter);
         return childIndexWriter;
