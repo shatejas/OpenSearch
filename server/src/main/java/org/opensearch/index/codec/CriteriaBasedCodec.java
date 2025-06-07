@@ -9,12 +9,20 @@
 package org.opensearch.index.codec;
 
 import org.apache.lucene.codecs.Codec;
+import org.apache.lucene.codecs.DocValuesConsumer;
+import org.apache.lucene.codecs.DocValuesFormat;
+import org.apache.lucene.codecs.DocValuesProducer;
 import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.SegmentInfoFormat;
 import org.apache.lucene.codecs.lucene101.Lucene101Codec;
+import org.apache.lucene.codecs.lucene90.Lucene90DocValuesFormat;
+import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.index.SegmentReadState;
+import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
+import org.opensearch.index.codec.composite.composite912.Composite912DocValuesFormat;
 
 import java.io.IOException;
 
@@ -41,9 +49,18 @@ public class CriteriaBasedCodec extends FilterCodec {
 
             @Override
             public void write(Directory directory, SegmentInfo info, IOContext ioContext) throws IOException {
-                info.putAttribute("criteria", criteria);
+                if (criteria != null) {
+                    info.putAttribute("criteria", criteria);
+                    System.out.println("Setting criteria for segment " + info.name);
+                }
+
                 delegate.segmentInfoFormat().write(directory, info, ioContext);
             }
         };
+    }
+
+    @Override
+    public DocValuesFormat docValuesFormat() {
+        return new CriteriaBasedDocValueFormat(criteria);
     }
 }

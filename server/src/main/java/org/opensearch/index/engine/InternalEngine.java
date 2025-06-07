@@ -2729,22 +2729,9 @@ public class InternalEngine extends Engine {
     // pkg-private for testing
     IndexWriter createWriter(Directory directory, IndexWriterConfig iwc) throws IOException {
         if (Assertions.ENABLED) {
-            return new AssertingIndexWriter(directory, iwc) {
-                @Override
-                protected void mergeSuccess(MergePolicy.OneMerge merge) {
-                    SegmentInfo segmentInfo = merge.getMergeInfo().info;
-                    segmentInfo.putAttribute("criteria", merge.segments.getFirst().info.getAttribute("criteria"));
-                }
-            };
+            return new AssertingIndexWriter(directory, iwc);
         } else {
-            return new IndexWriter(directory, iwc){
-
-                @Override
-                protected void mergeSuccess(MergePolicy.OneMerge merge) {
-                    SegmentInfo segmentInfo = merge.getMergeInfo().info;
-                    segmentInfo.putAttribute("criteria", merge.segments.getFirst().info.getAttribute("criteria"));
-                }
-            };
+            return new IndexWriter(directory, iwc);
         }
     }
 
@@ -2800,7 +2787,7 @@ public class InternalEngine extends Engine {
         iwc.setMergePolicy(new OpenSearchMergePolicy(mergePolicy));
         iwc.setSimilarity(engineConfig.getSimilarity());
         iwc.setRAMBufferSizeMB(engineConfig.getIndexingBufferSize().getMbFrac());
-        iwc.setCodec(engineConfig.getCodec());
+        iwc.setCodec(new CriteriaBasedCodec(engineConfig.getCodec(), null));
         iwc.setUseCompoundFile(engineConfig.useCompoundFile());
         if (config().getIndexSort() != null) {
             iwc.setIndexSort(config().getIndexSort());
