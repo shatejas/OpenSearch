@@ -2224,6 +2224,7 @@ public class InternalEngine extends Engine {
                 });
 
                 try (ReleasableLock ignored = childLevelWriteLocks.get(childIndexWriter.toString()).acquire()) {
+                    childIndexWriter.forceMerge(1);
                     childIndexWriter.close();
                 }
 
