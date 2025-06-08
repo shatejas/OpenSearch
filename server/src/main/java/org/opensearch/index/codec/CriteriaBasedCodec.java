@@ -26,6 +26,11 @@ import org.opensearch.index.codec.composite.composite912.Composite912DocValuesFo
 
 import java.io.IOException;
 
+/**
+ * The default internal engine (can be overridden by plugins)
+ *
+ * @opensearch.internal
+ */
 public class CriteriaBasedCodec extends FilterCodec {
 
     private final String criteria;
@@ -51,7 +56,6 @@ public class CriteriaBasedCodec extends FilterCodec {
             public void write(Directory directory, SegmentInfo info, IOContext ioContext) throws IOException {
                 if (criteria != null) {
                     info.putAttribute("criteria", criteria);
-                    System.out.println("Setting criteria for segment " + info.name);
                 }
 
                 delegate.segmentInfoFormat().write(directory, info, ioContext);

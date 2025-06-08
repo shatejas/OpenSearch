@@ -19,6 +19,11 @@ import org.apache.lucene.index.SegmentWriteState;
 
 import java.io.IOException;
 
+/**
+ * The default internal engine (can be overridden by plugins)
+ *
+ * @opensearch.internal
+ */
 public class CriteriaBasedDocValueFormat extends DocValuesFormat {
 
     private final DocValuesFormat delegate;

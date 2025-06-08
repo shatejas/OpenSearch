@@ -13,6 +13,11 @@ import org.apache.lucene.codecs.DocValuesProducer;
 
 import java.io.IOException;
 
+/**
+ * The default internal engine (can be overridden by plugins)
+ *
+ * @opensearch.internal
+ */
 public class CriteriaBasedDocValuesWriter extends DocValuesConsumer {
 
     private final DocValuesConsumer delegate;

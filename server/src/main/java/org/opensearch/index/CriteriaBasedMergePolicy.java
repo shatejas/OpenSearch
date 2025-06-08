@@ -20,6 +20,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * The default internal engine (can be overridden by plugins)
+ *
+ * @opensearch.internal
+ */
 public class CriteriaBasedMergePolicy extends TieredMergePolicy {
     @Override
     public MergeSpecification findMerges(
