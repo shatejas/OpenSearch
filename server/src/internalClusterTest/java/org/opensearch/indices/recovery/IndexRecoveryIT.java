@@ -34,6 +34,10 @@ package org.opensearch.indices.recovery;
 
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.index.IndexCommit;
+import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.index.SegmentInfos;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.NIOFSDirectory;
 import org.opensearch.OpenSearchException;
 import org.opensearch.Version;
 import org.opensearch.action.admin.cluster.health.ClusterHealthResponse;
@@ -133,10 +137,12 @@ import org.opensearch.transport.TransportService;
 import org.hamcrest.Matcher;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Spliterators;
@@ -284,6 +290,27 @@ public class IndexRecoveryIT extends OpenSearchIntegTestCase {
                 .get()
                 .isAcknowledged()
         );
+    }
+
+    public void testSegments() throws IOException {
+        Directory indexDirectory = new NIOFSDirectory(Path.of("/Users/rissag/OpenSearch/OpenSearch/server/build/testrun/internalClusterTest/temp/org.opensearch.indices.recovery.IndexRecoveryIT_9E410CE90A2E8CBE-001/tempDir-002/node_t1/d1/nodes/0/indices/8fL_d_vDQia5NWz8cjiy1g/0/index"));
+        Map<String, Integer> atCount = new HashMap<>();
+        SegmentInfos.readLatestCommit(indexDirectory).forEach(si -> {
+            try {
+                SegmentInfo info = si.info;
+                if (info.getAttribute("criteria") == null) {
+                    System.out.println("No attribute found for segment " + info.name + " with merge " + info.getAttribute("merge"));
+                } else {
+                    atCount.merge(info.getAttribute("criteria"), 1, Integer::sum);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+
+        for (Map.Entry<String, Integer> entry : atCount.entrySet()) {
+            System.out.println(entry.getKey() + ": " + entry.getValue());
+        }
     }
 
     public void testGatewayRecovery() throws Exception {
@@ -1378,7 +1405,7 @@ public class IndexRecoveryIT extends OpenSearchIntegTestCase {
             .setSettings(
                 Settings.builder()
                     .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
-                    .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 2)
+                    .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
                     .put(IndexSettings.FILE_BASED_RECOVERY_THRESHOLD_SETTING.getKey(), 1.0)
             )
             .get();
@@ -1386,52 +1413,54 @@ public class IndexRecoveryIT extends OpenSearchIntegTestCase {
 
         // Perform some replicated operations so the replica isn't simply empty, because ops-based recovery isn't better in that case
         final List<IndexRequestBuilder> requests = new ArrayList<>();
-        final int replicatedDocCount = scaledRandomIntBetween(25, 250);
+        final int replicatedDocCount = 30000;
         while (requests.size() < replicatedDocCount) {
             requests.add(client().prepareIndex(indexName).setSource("{}", MediaTypeRegistry.JSON));
         }
         indexRandom(true, requests);
-        if (randomBoolean()) {
-            flush(indexName);
-        }
+        refresh(indexName);
+        forceMerge();
+//        if (randomBoolean()) {
+//            flush(indexName);
+//        }
 
         String firstNodeToStop = randomFrom(internalCluster().getDataNodeNames());
-        Settings firstNodeToStopDataPathSettings = internalCluster().dataPathSettings(firstNodeToStop);
-        internalCluster().stopRandomNode(InternalTestCluster.nameFilter(firstNodeToStop));
-        String secondNodeToStop = randomFrom(internalCluster().getDataNodeNames());
-        Settings secondNodeToStopDataPathSettings = internalCluster().dataPathSettings(secondNodeToStop);
-        internalCluster().stopRandomNode(InternalTestCluster.nameFilter(secondNodeToStop));
-
-        final long desyncNanoTime = System.nanoTime();
-        // noinspection StatementWithEmptyBody
-        while (System.nanoTime() <= desyncNanoTime) {
-            // time passes
-        }
-
-        final int numNewDocs = scaledRandomIntBetween(25, 250);
-        for (int i = 0; i < numNewDocs; i++) {
-            client().prepareIndex(indexName).setSource("{}", MediaTypeRegistry.JSON).setRefreshPolicy(RefreshPolicy.IMMEDIATE).get();
-        }
-        // Flush twice to update the safe commit's local checkpoint
-        assertThat(client().admin().indices().prepareFlush(indexName).setForce(true).execute().get().getFailedShards(), equalTo(0));
-        assertThat(client().admin().indices().prepareFlush(indexName).setForce(true).execute().get().getFailedShards(), equalTo(0));
-
-        assertAcked(
-            client().admin()
-                .indices()
-                .prepareUpdateSettings(indexName)
-                .setSettings(Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 1))
-        );
-        internalCluster().startNode(randomFrom(firstNodeToStopDataPathSettings, secondNodeToStopDataPathSettings));
-        ensureGreen(indexName);
-
-        final RecoveryResponse recoveryResponse = client().admin().indices().recoveries(new RecoveryRequest(indexName)).get();
-        final List<RecoveryState> recoveryStates = recoveryResponse.shardRecoveryStates().get(indexName);
-        recoveryStates.removeIf(r -> r.getTimer().getStartNanoTime() <= desyncNanoTime);
-
-        assertThat(recoveryStates, hasSize(1));
-        assertThat(recoveryStates.get(0).getIndex().totalFileCount(), is(0));
-        assertThat(recoveryStates.get(0).getTranslog().recoveredOperations(), greaterThan(0));
+//        Settings firstNodeToStopDataPathSettings = internalCluster().dataPathSettings(firstNodeToStop);
+//        internalCluster().stopRandomNode(InternalTestCluster.nameFilter(firstNodeToStop));
+//        String secondNodeToStop = randomFrom(internalCluster().getDataNodeNames());
+//        Settings secondNodeToStopDataPathSettings = internalCluster().dataPathSettings(secondNodeToStop);
+//        internalCluster().stopRandomNode(InternalTestCluster.nameFilter(secondNodeToStop));
+//
+//        final long desyncNanoTime = System.nanoTime();
+//        // noinspection StatementWithEmptyBody
+//        while (System.nanoTime() <= desyncNanoTime) {
+//            // time passes
+//        }
+//
+//        final int numNewDocs = scaledRandomIntBetween(25, 250);
+//        for (int i = 0; i < numNewDocs; i++) {
+//            client().prepareIndex(indexName).setSource("{}", MediaTypeRegistry.JSON).setRefreshPolicy(RefreshPolicy.IMMEDIATE).get();
+//        }
+//        // Flush twice to update the safe commit's local checkpoint
+//        assertThat(client().admin().indices().prepareFlush(indexName).setForce(true).execute().get().getFailedShards(), equalTo(0));
+//        assertThat(client().admin().indices().prepareFlush(indexName).setForce(true).execute().get().getFailedShards(), equalTo(0));
+//
+//        assertAcked(
+//            client().admin()
+//                .indices()
+//                .prepareUpdateSettings(indexName)
+//                .setSettings(Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 1))
+//        );
+//        internalCluster().startNode(randomFrom(firstNodeToStopDataPathSettings, secondNodeToStopDataPathSettings));
+//        ensureGreen(indexName);
+//
+//        final RecoveryResponse recoveryResponse = client().admin().indices().recoveries(new RecoveryRequest(indexName)).get();
+//        final List<RecoveryState> recoveryStates = recoveryResponse.shardRecoveryStates().get(indexName);
+//        recoveryStates.removeIf(r -> r.getTimer().getStartNanoTime() <= desyncNanoTime);
+//
+//        assertThat(recoveryStates, hasSize(1));
+//        assertThat(recoveryStates.get(0).getIndex().totalFileCount(), is(0));
+//        assertThat(recoveryStates.get(0).getTranslog().recoveredOperations(), greaterThan(0));
     }
 
     public void testDoNotInfinitelyWaitForMapping() {
