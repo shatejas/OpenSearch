@@ -38,6 +38,7 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.util.CloseableThreadLocal;
 import org.opensearch.common.annotation.PublicApi;
+import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.util.concurrent.ConcurrentCollections;
 
 import java.io.IOException;
@@ -155,13 +156,19 @@ public final class VersionsAndSeqNoResolver {
      * <li>a doc ID and a version otherwise
      * </ul>
      */
-    public static DocIdAndVersion loadDocIdAndVersion(IndexReader reader, Term term, boolean loadSeqNo) throws IOException {
+    public static DocIdAndVersion loadDocIdAndVersion(IndexReader reader, Term term, boolean loadSeqNo, String criteria) throws IOException {
         PerThreadIDVersionAndSeqNoLookup[] lookups = getLookupState(reader, term.field());
         List<LeafReaderContext> leaves = reader.leaves();
         // iterate backwards to optimize for the frequently updated documents
         // which are likely to be in the last segments
         for (int i = leaves.size() - 1; i >= 0; i--) {
             final LeafReaderContext leaf = leaves.get(i);
+            //Temp fix
+            final String segmentCriteria = Lucene.segmentReader(leaf.reader()).getSegmentInfo().info.getAttribute("criteria");
+            if (segmentCriteria != null && criteria != null && !criteria.equals("-1") && segmentCriteria.equals(criteria) == false) {
+                continue;
+            }
+
             PerThreadIDVersionAndSeqNoLookup lookup = lookups[leaf.ord];
             DocIdAndVersion result = lookup.lookupVersion(term.bytes(), loadSeqNo, leaf);
             if (result != null) {

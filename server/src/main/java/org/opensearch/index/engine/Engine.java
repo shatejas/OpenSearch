@@ -333,7 +333,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
         VersionsAndSeqNoResolver.DocIdAndVersion docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(
             searcher.getIndexReader(),
             uidTerm,
-            true
+            true, null
         );
         assert docIdAndVersion != null;
         return docIdAndVersion.seqNo;
@@ -702,7 +702,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
         final Engine.Searcher searcher = searcherFactory.apply("get", scope);
         final DocIdAndVersion docIdAndVersion;
         try {
-            docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(searcher.getIndexReader(), get.uid(), true);
+            docIdAndVersion = VersionsAndSeqNoResolver.loadDocIdAndVersion(searcher.getIndexReader(), get.uid(), true, null);
         } catch (Exception e) {
             Releasables.closeWhileHandlingException(searcher);
             // TODO: A better exception goes here
