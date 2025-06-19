@@ -31,17 +31,31 @@
 
 package org.opensearch.common.lucene.index;
 
+import org.apache.lucene.index.BaseCompositeReader;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FilterDirectoryReader;
+import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.store.Directory;
+import org.opensearch.cluster.coordination.LeaderChecker;
 import org.opensearch.common.SuppressForbidden;
+import org.opensearch.common.annotation.ExperimentalApi;
 import org.opensearch.common.annotation.PublicApi;
+import org.opensearch.common.lucene.Lucene;
 import org.opensearch.core.index.shard.ShardId;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A {@link org.apache.lucene.index.FilterDirectoryReader} that exposes
@@ -50,10 +64,12 @@ import java.util.UUID;
  * @opensearch.api
  */
 @PublicApi(since = "1.0.0")
-public final class OpenSearchDirectoryReader extends FilterDirectoryReader {
+public class OpenSearchDirectoryReader extends FilterDirectoryReader {
 
     private final ShardId shardId;
     private final FilterDirectoryReader.SubReaderWrapper wrapper;
+
+    private final Map<String, List<LeafReader>> criteriaBasedReaders = new HashMap<>();
 
     private final DelegatingCacheHelper delegatingCacheHelper;
 
@@ -63,6 +79,20 @@ public final class OpenSearchDirectoryReader extends FilterDirectoryReader {
         this.wrapper = wrapper;
         this.shardId = shardId;
         this.delegatingCacheHelper = new DelegatingCacheHelper(in.getReaderCacheHelper());
+        warmUpCriteriaBasedReader(in.leaves());
+    }
+
+    private void warmUpCriteriaBasedReader(final List<LeafReaderContext> leaves)  {
+        // TODO: index setting to figure out if it we need to look for criterias?
+        for (LeafReaderContext leafReaderContext : leaves) {
+            final String criteria = Lucene.segmentReader(leafReaderContext.reader())
+                .getSegmentInfo().info.getAttribute("criteria");
+            if (criteria != null) {
+                criteriaBasedReaders.computeIfAbsent(criteria, k -> new ArrayList<>()).add(leafReaderContext.reader());
+            } else {
+                //TODO: not sure what to do
+            }
+        }
     }
 
     /**
@@ -70,6 +100,15 @@ public final class OpenSearchDirectoryReader extends FilterDirectoryReader {
      */
     public ShardId shardId() {
         return this.shardId;
+    }
+
+    public CriteriaBasedReader getCriteriaBasedReader(String criteria) throws IOException {
+        List<LeafReader> leadReaders = criteriaBasedReaders.get(criteria);
+        if (leadReaders == null) {
+            return null;
+        }
+
+        return new CriteriaBasedReader(directory, leadReaders.toArray(new LeafReader[0]), criteria);
     }
 
     @Override
@@ -209,5 +248,67 @@ public final class OpenSearchDirectoryReader extends FilterDirectoryReader {
             }
         }
         return null;
+    }
+
+    @ExperimentalApi
+    public static class CriteriaBasedReader extends DirectoryReader {
+
+        private String criteria;
+        /**
+         * Constructs a {@code BaseCompositeReader} on the given subReaders.
+         *
+         * @param subReaders       the wrapped sub-readers. This array is returned by {@link
+         *                         #getSequentialSubReaders} and used to resolve the correct subreader for docID-based
+         *                         methods. <b>Please note:</b> This array is <b>not</b> cloned and not protected for
+         *                         modification, the subclass is responsible to do this.
+         */
+        protected CriteriaBasedReader(Directory directory, LeafReader[] subReaders, String criteria) throws IOException {
+            super(directory, subReaders, null);
+            this.criteria = criteria;
+        }
+
+        public String getCriteria() {
+            return this.criteria;
+        }
+
+        @Override
+        protected void doClose() throws IOException {
+            //NO op
+        }
+
+        @Override
+        public CacheHelper getReaderCacheHelper() {
+            return null; //Needs to be thought through;
+        }
+
+        @Override
+        protected DirectoryReader doOpenIfChanged() throws IOException {
+            return this;
+        }
+
+        @Override
+        protected DirectoryReader doOpenIfChanged(IndexCommit commit) throws IOException {
+            return this;
+        }
+
+        @Override
+        protected DirectoryReader doOpenIfChanged(IndexWriter writer, boolean applyAllDeletes) throws IOException {
+            return this;
+        }
+
+        @Override
+        public long getVersion() {
+            return 0;
+        }
+
+        @Override
+        public boolean isCurrent() throws IOException {
+            return true;
+        }
+
+        @Override
+        public IndexCommit getIndexCommit() throws IOException {
+            return null;
+        }
     }
 }

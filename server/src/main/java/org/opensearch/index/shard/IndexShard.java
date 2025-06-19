@@ -1926,17 +1926,31 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
      * Acquires a point-in-time reader that can be used to create {@link Engine.Searcher}s on demand.
      */
     public Engine.SearcherSupplier acquireSearcherSupplier() {
-        return acquireSearcherSupplier(Engine.SearcherScope.EXTERNAL);
+        return acquireSearcherSupplier(Engine.SearcherScope.EXTERNAL, null);
+    }
+
+    /**
+     * Acquires a point-in-time reader that can be used to create {@link Engine.Searcher}s on demand.
+     */
+    public Engine.SearcherSupplier acquireSearcherSupplier(@Nullable String criteria) {
+        return acquireSearcherSupplier(Engine.SearcherScope.EXTERNAL, criteria);
     }
 
     /**
      * Acquires a point-in-time reader that can be used to create {@link Engine.Searcher}s on demand.
      */
     public Engine.SearcherSupplier acquireSearcherSupplier(Engine.SearcherScope scope) {
+        return acquireSearcherSupplier(scope, null);
+    }
+
+    /**
+     * Acquires a point-in-time reader that can be used to create {@link Engine.Searcher}s on demand.
+     */
+    public Engine.SearcherSupplier acquireSearcherSupplier(Engine.SearcherScope scope, String criteria) {
         readAllowed();
         markSearcherAccessed();
         final Engine engine = getEngine();
-        return engine.acquireSearcherSupplier(this::wrapSearcher, scope);
+        return engine.acquireSearcherSupplier(this::wrapSearcher, scope, criteria);
     }
 
     public Engine.Searcher acquireSearcher(String source) {

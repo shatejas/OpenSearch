@@ -34,12 +34,14 @@ package org.opensearch.index.engine;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
+import org.apache.lucene.index.BaseCompositeReader;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
@@ -68,6 +70,7 @@ import org.opensearch.common.lease.Releasables;
 import org.opensearch.common.logging.Loggers;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
+import org.opensearch.common.lucene.index.OpenSearchLeafReader;
 import org.opensearch.common.lucene.search.Queries;
 import org.opensearch.common.lucene.uid.Versions;
 import org.opensearch.common.lucene.uid.VersionsAndSeqNoResolver;
@@ -751,10 +754,14 @@ public abstract class Engine implements LifecycleAware, Closeable {
         return acquireSearcherSupplier(wrapper, SearcherScope.EXTERNAL);
     }
 
+    public SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper, SearcherScope scope) throws EngineException {
+        return acquireSearcherSupplier(wrapper, scope, null);
+    }
+
     /**
      * Acquires a point-in-time reader that can be used to create {@link Engine.Searcher}s on demand.
      */
-    public SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper, SearcherScope scope) throws EngineException {
+    public SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper, SearcherScope scope, String criteria) throws EngineException {
         /* Acquire order here is store -> manager since we need
          * to make sure that the store is not closed before
          * the searcher is acquired. */
@@ -765,15 +772,21 @@ public abstract class Engine implements LifecycleAware, Closeable {
         Releasable releasable = store::decRef;
         try {
             ReferenceManager<OpenSearchDirectoryReader> referenceManager = getReferenceManager(scope);
-
             OpenSearchDirectoryReader acquire = referenceManager.acquire();
+            final IndexReader indexReader;
+            if (criteria != null) {
+                indexReader = acquire.getCriteriaBasedReader(criteria);
+            } else {
+                indexReader = acquire;
+            }
+
             SearcherSupplier reader = new SearcherSupplier(wrapper) {
                 @Override
                 public Searcher acquireSearcherInternal(String source) {
                     assert assertSearcherIsWarmedUp(source, scope);
                     return new Searcher(
                         source,
-                        acquire,
+                        indexReader,
                         engineConfig.getSimilarity(),
                         engineConfig.getQueryCache(),
                         engineConfig.getQueryCachingPolicy(),
@@ -825,7 +838,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
             releasable = null;
             return new Searcher(
                 source,
-                searcher.getDirectoryReader(),
+                searcher.getIndexReader(),
                 searcher.getSimilarity(),
                 searcher.getQueryCache(),
                 searcher.getQueryCachingPolicy(),
