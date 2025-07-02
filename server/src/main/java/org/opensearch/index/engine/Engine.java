@@ -836,6 +836,7 @@ public abstract class Engine implements LifecycleAware, Closeable {
             SearcherSupplier reader = releasable = acquireSearcherSupplier(wrapper, scope);
             Searcher searcher = reader.acquireSearcher(source);
             releasable = null;
+
             return new Searcher(
                 source,
                 searcher.getIndexReader(),

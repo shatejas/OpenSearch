@@ -125,6 +125,7 @@ public abstract class SearchContext implements Releasable {
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private InnerHitsContext innerHitsContext;
     private volatile boolean searchTimedOut;
+    private String tenant;
 
     protected SearchContext() {}
 

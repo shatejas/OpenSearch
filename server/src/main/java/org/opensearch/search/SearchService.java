@@ -933,7 +933,8 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         }
         IndexService indexService = indicesService.indexServiceSafe(request.shardId().getIndex());
         IndexShard shard = indexService.getShard(request.shardId().id());
-        Engine.SearcherSupplier reader = shard.acquireSearcherSupplier("2");
+        String tenant = request.source().tenant();
+        Engine.SearcherSupplier reader = shard.acquireSearcherSupplier(tenant);
         return createAndPutReaderContext(request, indexService, shard, reader, keepStatesInContext);
     }
 

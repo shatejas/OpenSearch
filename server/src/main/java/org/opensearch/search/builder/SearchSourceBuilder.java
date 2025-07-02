@@ -137,6 +137,7 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
     public static final ParseField POINT_IN_TIME = new ParseField("pit");
     public static final ParseField SEARCH_PIPELINE = new ParseField("search_pipeline");
     public static final ParseField VERBOSE_SEARCH_PIPELINE = new ParseField("verbose_pipeline");
+    public static final ParseField TENANT = new ParseField("tenant");
 
     public static SearchSourceBuilder fromXContent(XContentParser parser) throws IOException {
         return fromXContent(parser, true);
@@ -229,6 +230,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
 
     private boolean verbosePipeline = false;
 
+    private String tenant;
+
     /**
      * Constructs a new search source builder.
      */
@@ -307,6 +310,10 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
         }
         if (in.getVersion().onOrAfter(Version.V_2_19_0)) {
             verbosePipeline = in.readBoolean();
+        }
+
+        if (in.getVersion().onOrAfter(Version.V_2_20_0)) {
+            tenant = in.readOptionalString();
         }
     }
 
@@ -394,6 +401,9 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
         if (out.getVersion().onOrAfter(Version.V_2_19_0)) {
             out.writeBoolean(verbosePipeline);
         }
+        if (out.getVersion().onOrAfter(Version.V_2_20_0)) {
+            out.writeOptionalString(tenant);
+        }
     }
 
     /**
@@ -446,6 +456,14 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
      **/
     public int from() {
         return from;
+    }
+
+    public void tenant(String tenant) {
+        this.tenant = tenant;
+    }
+
+    public String tenant() {
+        return tenant;
     }
 
     /**
@@ -1341,6 +1359,8 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
                     searchPipeline = parser.text();
                 } else if (VERBOSE_SEARCH_PIPELINE.match(currentFieldName, parser.getDeprecationHandler())) {
                     verbosePipeline = parser.booleanValue();
+                } else if (TENANT.match(currentFieldName, parser.getDeprecationHandler())) {
+                    tenant = parser.text();
                 } else {
                     throw new ParsingException(
                         parser.getTokenLocation(),
