@@ -97,6 +97,7 @@ import org.opensearch.index.VersionType;
 import org.opensearch.index.codec.CriteriaBasedCodec;
 import org.opensearch.index.fieldvisitor.IdOnlyFieldVisitor;
 import org.opensearch.index.mapper.IdFieldMapper;
+import org.opensearch.index.mapper.NamespaceFieldMapper;
 import org.opensearch.index.mapper.ParseContext;
 import org.opensearch.index.mapper.ParsedDocument;
 import org.opensearch.index.mapper.SeqNoFieldMapper;
@@ -914,7 +915,7 @@ public class InternalEngine extends Engine {
     public IndexResult index(Index index) throws IOException {
         assert Objects.equals(index.uid().field(), IdFieldMapper.NAME) : index.uid().field();
         final boolean doThrottle = index.origin().isRecovery() == false;
-        String criteria = getGroupingCriteriaForDoc(index.docs());
+        final String criteria = getGroupingCriteriaForDoc(index.docs(), index.namespaceFieldMapper());
         IndexWriter indexWriter = getAssociatedIndexWriterForCriteria(criteria);
         try (ReleasableLock releasableLock = readLock.acquire();
              Releasable ignored2 = childLevelReadLocks.get(indexWriter.toString()).acquire()) {
@@ -1328,7 +1329,7 @@ public class InternalEngine extends Engine {
         return iwc;
     }
 
-    private String getGroupingCriteriaForDoc(final Iterable<? extends Iterable<? extends IndexableField>> docs) {
+    private String getGroupingCriteriaForDoc(final Iterable<? extends Iterable<? extends IndexableField>> docs, NamespaceFieldMapper namespaceFieldMapper) {
         Iterator<? extends IndexableField> docIt = docs.iterator().next().iterator();
 //        if (config().isContextAwareEnabled()) {
 //            while (docIt.hasNext()) {
@@ -1351,9 +1352,14 @@ public class InternalEngine extends Engine {
 //            }
 //        }
 
+        if (namespaceFieldMapper == null) {
+            return "-1";
+        }
+
+        final String fieldName = namespaceFieldMapper.fieldType().getFieldName();
         while (docIt.hasNext()) {
             IndexableField field = docIt.next();
-            if (field.name().equals("tenant")) {
+            if (field.name().equals(fieldName)) {
                 String tenantId = field.stringValue();
                 if (tenantId == null || tenantId.isBlank()) {
                     return "-1";

@@ -178,12 +178,16 @@ public class RootObjectMapper extends ObjectMapper {
             RootObjectMapper.Builder builder = new Builder(name);
             Iterator<Map.Entry<String, Object>> iterator = node.entrySet().iterator();
             Object compositeField = null;
+            Object namespaceField = null;
             while (iterator.hasNext()) {
                 Map.Entry<String, Object> entry = iterator.next();
                 String fieldName = entry.getKey();
                 Object fieldNode = entry.getValue();
                 if (fieldName.equals("composite")) {
                     compositeField = fieldNode;
+                    iterator.remove();
+                } else if (fieldName.equals("namespace")) {
+                    namespaceField = fieldNode;
                     iterator.remove();
                 } else {
                     if (parseObjectOrDocumentTypeProperties(fieldName, fieldNode, parserContext, builder)
@@ -196,6 +200,10 @@ public class RootObjectMapper extends ObjectMapper {
             // after parsing all other properties
             if (compositeField != null) {
                 parseCompositeField(builder, (Map<String, Object>) compositeField, parserContext);
+            }
+
+            if (namespaceField != null) {
+                parseNamespaceField(builder, (Map<String, Object>) namespaceField, parserContext);
             }
             return builder;
         }

@@ -51,7 +51,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static java.util.Collections.emptyList;
 
@@ -99,7 +101,7 @@ public class OpenSearchDirectoryReader extends FilterDirectoryReader {
         for (Map.Entry<String, List<LeafReader>> entry : criteriaBasedLeafReaders.entrySet()) {
             final String criteria = entry.getKey();
             final CriteriaBasedReader reader =
-                new CriteriaBasedReader(directory, entry.getValue().toArray(new LeafReader[0]), in.getReaderCacheHelper(), criteria);
+                new CriteriaBasedReader(directory, entry.getValue().toArray(new LeafReader[0]), in.getReaderCacheHelper());
             criteriaBasedReaders.put(criteria,
                 new OpenSearchDirectoryReader
                     (reader, new FilterDirectoryReader.SubReaderWrapper() {
@@ -118,11 +120,21 @@ public class OpenSearchDirectoryReader extends FilterDirectoryReader {
         return this.shardId;
     }
 
-    public OpenSearchDirectoryReader getCriteriaBasedReader(String criteria) throws IOException {
-        OpenSearchDirectoryReader criteriaBasedReader = criteriaBasedReaders.get(criteria);
-        if (criteriaBasedReader == null) {
+    public OpenSearchDirectoryReader getCriteriaBasedReader(Set<String> criteria) throws IOException {
+
+        List<LeafReader> leafReaders = new ArrayList<>();
+        for (String criteriaKey : criteria) {
+            OpenSearchDirectoryReader criteriaBasedReader = criteriaBasedReaders.get(criteriaKey);
+            if (criteriaBasedReader != null) {
+                leafReaders.addAll(criteriaBasedReader.leaves().stream()
+                    .map(LeafReaderContext::reader)
+                    .toList());
+            }
+
+        }
+        if (leafReaders.isEmpty()) {
             // Return empty reader. need to give a constant cache key
-            return new OpenSearchDirectoryReader(new CriteriaBasedReader(directory, emptyList().toArray(new LeafReader[0]), in.getReaderCacheHelper(), criteria),
+            return new OpenSearchDirectoryReader(new CriteriaBasedReader(directory, emptyList().toArray(new LeafReader[0]), in.getReaderCacheHelper()),
                 new FilterDirectoryReader.SubReaderWrapper() {
                     @Override
                     public LeafReader wrap(LeafReader reader) {
@@ -131,7 +143,9 @@ public class OpenSearchDirectoryReader extends FilterDirectoryReader {
                 },
                 shardId());
         }
-        return criteriaBasedReader;
+        return new OpenSearchDirectoryReader(new CriteriaBasedReader(directory, leafReaders.toArray(new LeafReader[0]), in.getReaderCacheHelper()),
+            wrapper,
+            shardId());
     }
 
     @Override
@@ -276,7 +290,6 @@ public class OpenSearchDirectoryReader extends FilterDirectoryReader {
     @ExperimentalApi
     public class CriteriaBasedReader extends DirectoryReader {
 
-        private String criteria;
         private CacheHelper cacheHelper;
         /**
          * Constructs a {@code BaseCompositeReader} on the given subReaders.
@@ -286,15 +299,10 @@ public class OpenSearchDirectoryReader extends FilterDirectoryReader {
          *                         methods. <b>Please note:</b> This array is <b>not</b> cloned and not protected for
          *                         modification, the subclass is responsible to do this.
          */
-        protected CriteriaBasedReader(Directory directory, LeafReader[] subReaders, CacheHelper cacheHelper, String criteria) throws IOException {
+        protected CriteriaBasedReader(Directory directory, LeafReader[] subReaders, CacheHelper cacheHelper) throws IOException {
             super(directory, subReaders, null);
-            this.criteria = criteria;
             // Create a new object here to have a different cache key uuid than parent
             this.cacheHelper = cacheHelper;
-        }
-
-        public String getCriteria() {
-            return this.criteria;
         }
 
         @Override

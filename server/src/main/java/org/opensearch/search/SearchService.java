@@ -57,6 +57,7 @@ import org.opensearch.common.lease.Releasable;
 import org.opensearch.common.lease.Releasables;
 import org.opensearch.common.lifecycle.AbstractLifecycleComponent;
 import org.opensearch.common.lucene.Lucene;
+import org.opensearch.common.lucene.index.OpenSearchDirectoryReader;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Setting.Property;
 import org.opensearch.common.settings.Settings;
@@ -80,6 +81,7 @@ import org.opensearch.index.IndexSettings;
 import org.opensearch.index.engine.Engine;
 import org.opensearch.index.mapper.DerivedFieldResolver;
 import org.opensearch.index.mapper.DerivedFieldResolverFactory;
+import org.opensearch.index.mapper.NamespaceFieldMapper;
 import org.opensearch.index.query.InnerHitContextBuilder;
 import org.opensearch.index.query.MatchAllQueryBuilder;
 import org.opensearch.index.query.MatchNoneQueryBuilder;
@@ -105,6 +107,7 @@ import org.opensearch.search.aggregations.SearchContextAggregations;
 import org.opensearch.search.aggregations.pipeline.PipelineAggregator.PipelineTree;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.collapse.CollapseContext;
+import org.opensearch.search.contextaware.CriteriaExtractor;
 import org.opensearch.search.deciders.ConcurrentSearchRequestDecider;
 import org.opensearch.search.dfs.DfsPhase;
 import org.opensearch.search.dfs.DfsSearchResult;
@@ -168,6 +171,7 @@ import java.util.function.LongSupplier;
 import static org.opensearch.common.unit.TimeValue.timeValueHours;
 import static org.opensearch.common.unit.TimeValue.timeValueMillis;
 import static org.opensearch.common.unit.TimeValue.timeValueMinutes;
+import static org.opensearch.search.contextaware.CriteriaExtractor.extractCriteria;
 import static org.opensearch.search.internal.SearchContext.TRACK_TOTAL_HITS_DISABLED;
 
 /**
@@ -932,9 +936,17 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             return findReaderContext(request.readerId(), request);
         }
         IndexService indexService = indicesService.indexServiceSafe(request.shardId().getIndex());
+
         IndexShard shard = indexService.getShard(request.shardId().id());
-        String tenant = request.source().tenant();
-        Engine.SearcherSupplier reader = shard.acquireSearcherSupplier(tenant);
+        NamespaceFieldMapper namespaceFieldMapper = (NamespaceFieldMapper) indexService.mapperService()
+            .documentMapper().mappers().getMapper(NamespaceFieldMapper.CONTENT_TYPE);
+        Engine.SearcherSupplier reader;
+        if (namespaceFieldMapper != null) {
+            String criteriaField = namespaceFieldMapper.fieldType().getFieldName();
+            reader = shard.acquireSearcherSupplier(extractCriteria(request.source().query(), criteriaField));
+        } else {
+            reader = shard.acquireSearcherSupplier(Collections.emptySet());
+        }
         return createAndPutReaderContext(request, indexService, shard, reader, keepStatesInContext);
     }
 

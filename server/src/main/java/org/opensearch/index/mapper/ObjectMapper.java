@@ -59,6 +59,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Field mapper for object field types
@@ -435,6 +436,13 @@ public class ObjectMapper extends Mapper implements Cloneable {
                 parserContext.indexVersionCreated(),
                 "DocType mapping definition has unsupported parameters: "
             );
+        }
+
+
+        protected static void parseNamespaceField(ObjectMapper.Builder objBuilder, Map<String, Object> namespaceNode, ParserContext parserContext) {
+            Mapper.TypeParser typeParser = parserContext.typeParser(NamespaceFieldMapper.CONTENT_TYPE);
+            Mapper.Builder<?> mapperBuilder = typeParser.parse("namespace", namespaceNode, parserContext);
+            objBuilder.add(mapperBuilder);
         }
 
         /**
@@ -870,9 +878,14 @@ public class ObjectMapper extends Mapper implements Cloneable {
             }
         });
 
+        Optional<Mapper> namespaceMapper = mappers.values()
+            .stream()
+            .filter(m -> m instanceof NamespaceFieldMapper)
+            .findFirst();
+
         Mapper[] sortedMappers = mappers.values()
             .stream()
-            .filter(m -> !(m instanceof DerivedFieldMapper))
+            .filter(m -> !(m instanceof DerivedFieldMapper || m instanceof NamespaceFieldMapper))
             .toArray(size -> new Mapper[size]);
         Arrays.sort(sortedMappers, new Comparator<Mapper>() {
             @Override
@@ -888,6 +901,7 @@ public class ObjectMapper extends Mapper implements Cloneable {
             }
             mapper.toXContent(builder, params);
         }
+
         if (count > 0) {
             builder.endObject();
         }
@@ -904,6 +918,11 @@ public class ObjectMapper extends Mapper implements Cloneable {
         if (count > 0) {
             builder.endObject();
         }
+
+        if (namespaceMapper.isPresent()) {
+            namespaceMapper.get().toXContent(builder, params);
+        }
+
         builder.endObject();
     }
 
