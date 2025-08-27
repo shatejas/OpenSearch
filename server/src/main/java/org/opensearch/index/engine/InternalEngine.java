@@ -97,6 +97,8 @@ import org.opensearch.index.VersionType;
 import org.opensearch.index.codec.CriteriaBasedCodec;
 import org.opensearch.index.fieldvisitor.IdOnlyFieldVisitor;
 import org.opensearch.index.mapper.IdFieldMapper;
+import org.opensearch.index.mapper.Mapper;
+import org.opensearch.index.mapper.Mapping;
 import org.opensearch.index.mapper.NamespaceFieldMapper;
 import org.opensearch.index.mapper.ParseContext;
 import org.opensearch.index.mapper.ParsedDocument;
@@ -118,6 +120,8 @@ import org.opensearch.index.translog.TranslogException;
 import org.opensearch.index.translog.TranslogManager;
 import org.opensearch.index.translog.listener.CompositeTranslogEventListener;
 import org.opensearch.index.translog.listener.TranslogEventListener;
+import org.opensearch.script.NamespaceScript;
+import org.opensearch.script.Script;
 import org.opensearch.search.suggest.completion.CompletionStats;
 import org.opensearch.threadpool.ThreadPool;
 
@@ -915,7 +919,7 @@ public class InternalEngine extends Engine {
     public IndexResult index(Index index) throws IOException {
         assert Objects.equals(index.uid().field(), IdFieldMapper.NAME) : index.uid().field();
         final boolean doThrottle = index.origin().isRecovery() == false;
-        final String criteria = getGroupingCriteriaForDoc(index.docs(), index.namespaceFieldMapper());
+        final String criteria = getGroupingCriteriaForDoc(index.parsedDoc(), index.namespaceFieldMapper());
         IndexWriter indexWriter = getAssociatedIndexWriterForCriteria(criteria);
         try (ReleasableLock releasableLock = readLock.acquire();
              Releasable ignored2 = childLevelReadLocks.get(indexWriter.toString()).acquire()) {
@@ -1329,8 +1333,8 @@ public class InternalEngine extends Engine {
         return iwc;
     }
 
-    private String getGroupingCriteriaForDoc(final Iterable<? extends Iterable<? extends IndexableField>> docs, NamespaceFieldMapper namespaceFieldMapper) {
-        Iterator<? extends IndexableField> docIt = docs.iterator().next().iterator();
+    private String getGroupingCriteriaForDoc(final ParsedDocument doc, NamespaceFieldMapper namespaceFieldMapper) {
+        Iterator<? extends IndexableField> docIt = doc.docs().iterator().next().iterator();
 //        if (config().isContextAwareEnabled()) {
 //            while (docIt.hasNext()) {
 //                IndexableField field = docIt.next();
@@ -1351,25 +1355,31 @@ public class InternalEngine extends Engine {
 //                }
 //            }
 //        }
-
         if (namespaceFieldMapper == null) {
-            return "-1";
+            return null;
         }
 
         final String fieldName = namespaceFieldMapper.fieldType().getFieldName();
+        final NamespaceScript script = namespaceFieldMapper.fieldType().compiledScript();
         while (docIt.hasNext()) {
             IndexableField field = docIt.next();
             if (field.name().equals(fieldName)) {
-                String tenantId = field.stringValue();
+                //The value needs to be an object value
+                String value = field.stringValue();
+                if (script == null) {
+                    return value;
+                }
+
+                String tenantId = script.execute(Map.of(fieldName, value));
                 if (tenantId == null || tenantId.isBlank()) {
-                    return "-1";
+                    return null;
                 }
 
                 return tenantId;
             }
         }
 
-        return "-1";
+        return null;
     }
 
     /**

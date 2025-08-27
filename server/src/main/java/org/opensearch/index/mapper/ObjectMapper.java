@@ -441,7 +441,7 @@ public class ObjectMapper extends Mapper implements Cloneable {
 
         protected static void parseNamespaceField(ObjectMapper.Builder objBuilder, Map<String, Object> namespaceNode, ParserContext parserContext) {
             Mapper.TypeParser typeParser = parserContext.typeParser(NamespaceFieldMapper.CONTENT_TYPE);
-            Mapper.Builder<?> mapperBuilder = typeParser.parse("namespace", namespaceNode, parserContext);
+            Mapper.Builder<?> mapperBuilder = typeParser.parse("namespace", namespaceNode, parserContext, objBuilder);
             objBuilder.add(mapperBuilder);
         }
 

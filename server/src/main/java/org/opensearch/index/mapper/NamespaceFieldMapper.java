@@ -10,7 +10,10 @@ package org.opensearch.index.mapper;
 
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.core.xcontent.XContentBuilder;
+import org.opensearch.script.NamespaceScript;
+import org.opensearch.script.Script;
 
+import javax.naming.Name;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +34,12 @@ public class NamespaceFieldMapper extends ParametrizedFieldMapper {
         public Mapper.Builder<?> parse(String name, Map<String, Object> node, ParserContext context) throws MapperParsingException {
             Builder builder = new Builder(name);
             builder.parse(name, context, node);
+            Script namespaceScript = builder.script.get();
+            if (namespaceScript != null) {
+                NamespaceScript.Factory factory = context.scriptService().compile(builder.script.get(), NamespaceScript.CONTEXT);
+                builder.namespaceScript = factory.newInstance();
+            }
+
             return builder;
         }
 
@@ -39,6 +48,12 @@ public class NamespaceFieldMapper extends ParametrizedFieldMapper {
             throws MapperParsingException {
             Builder builder = new Builder(name);
             builder.parse(name, context, node);
+            // TODO: validate fields with properties
+            Script namespaceScript = builder.script.get();
+            if (namespaceScript != null) {
+                NamespaceScript.Factory factory = context.scriptService().compile(builder.script.get(), NamespaceScript.CONTEXT);
+                builder.namespaceScript = factory.newInstance();
+            }
             return builder;
         }
     }
@@ -56,6 +71,16 @@ public class NamespaceFieldMapper extends ParametrizedFieldMapper {
             null)
             .acceptsNull();
 
+        private final Parameter<Script> script = new Parameter<>(
+            "script",
+            true,
+            () -> null,
+            (n, c, o) -> o == null ? null : Script.parse(o),
+            m -> toType(m).script
+        ).setSerializerCheck((id, ic, value) -> value != null);
+
+
+        private NamespaceScript namespaceScript;
         /**
          * Creates a new Builder with a field name
          *
@@ -65,26 +90,28 @@ public class NamespaceFieldMapper extends ParametrizedFieldMapper {
             super(name);
         }
 
-        protected Builder(String name, String namespaceField) {
+        protected Builder(String name, String namespaceField, Script script, NamespaceScript namespaceScript) {
             super(name);
             this.namespaceField.setValue(namespaceField);
+            this.script.setValue(script);
+            this.namespaceScript = namespaceScript;
         }
 
         @Override
         protected List<Parameter<?>> getParameters() {
-            return List.of(namespaceField);
+            return List.of(namespaceField, script);
         }
 
         @Override
         public ParametrizedFieldMapper build(BuilderContext context) {
-            NamespaceFieldType namespaceFieldType = new NamespaceFieldType(CONTENT_TYPE);
-            namespaceFieldType.setFieldName(this.namespaceField.getValue());
-
+            NamespaceFieldType namespaceFieldType = new NamespaceFieldType(CONTENT_TYPE, this.namespaceField.getValue(), namespaceScript);
             return new NamespaceFieldMapper(name, namespaceFieldType, this);
         }
     }
 
     private final String namespaceField;
+    private final Script script;
+    private final NamespaceScript namespaceScript;
 
     /**
      * Creates a new ParametrizedFieldMapper
@@ -95,11 +122,13 @@ public class NamespaceFieldMapper extends ParametrizedFieldMapper {
     protected NamespaceFieldMapper(String simpleName, NamespaceFieldType type, Builder builder) {
         super(simpleName, type, MultiFields.empty(), CopyTo.empty());
         this.namespaceField = builder.namespaceField.getValue();
+        this.script = builder.script.get();
+        this.namespaceScript = builder.namespaceScript;
     }
 
     @Override
     public Builder getMergeBuilder() {
-        return new Builder(simpleName(), namespaceField);
+        return new Builder(simpleName(), namespaceField, script, namespaceScript);
     }
 
     @Override

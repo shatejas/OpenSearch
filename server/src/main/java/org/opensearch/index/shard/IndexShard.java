@@ -1183,7 +1183,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         }
 
         MappingLookup mappingLookup = docMapper.getDocumentMapper().mappers();
-        Mapper namespaceMapper = mappingLookup.getMapper(NamespaceFieldMapper.CONTENT_TYPE);
+        NamespaceFieldMapper namespaceMapper = (NamespaceFieldMapper) mappingLookup.getMapper(NamespaceFieldMapper.CONTENT_TYPE);
 
         Term uid = new Term(IdFieldMapper.NAME, Uid.encodeId(doc.id()));
         return new Engine.Index(

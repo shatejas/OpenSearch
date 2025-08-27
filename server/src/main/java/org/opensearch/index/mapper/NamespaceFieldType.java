@@ -11,6 +11,8 @@ package org.opensearch.index.mapper;
 import org.apache.lucene.search.Query;
 import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.index.query.QueryShardContext;
+import org.opensearch.script.NamespaceScript;
+import org.opensearch.script.Script;
 import org.opensearch.search.lookup.SearchLookup;
 
 import java.util.Collections;
@@ -18,18 +20,21 @@ import java.util.Collections;
 @PublicApi(since = "3.1.0")
 public class NamespaceFieldType extends MappedFieldType {
 
-    private String fieldName;
+    private final String fieldName;
+    private final NamespaceScript compiledScript;
 
-    public NamespaceFieldType(String name) {
+    public NamespaceFieldType(String name, String fieldName, NamespaceScript script) {
         super(name, false, false, false, TextSearchInfo.NONE, Collections.emptyMap());
-    }
-
-    public void setFieldName(String fieldName) {
         this.fieldName = fieldName;
+        this.compiledScript = script;
     }
 
     public String getFieldName() {
         return fieldName;
+    }
+
+    public NamespaceScript compiledScript() {
+        return compiledScript;
     }
 
     @Override
