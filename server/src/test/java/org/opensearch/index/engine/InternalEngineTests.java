@@ -805,7 +805,8 @@ public class InternalEngineTests extends EngineTestCase {
             engine.refresh("test");
 
             segments = engine.segments(true);
-            // This works for regular scenario because merges are triggered by preparePointInTimeMerge by refresh, which is a blocking merge.
+            // This works for regular scenario because merges are triggered by preparePointInTimeMerge by refresh, which is a blocking
+            // merge.
             // In context aware scenario, addIndexes triggers a non blocking merge before refresh triggers it, so this test case fails
             assertThat(segments.size(), equalTo(1));
         }
@@ -1031,7 +1032,7 @@ public class InternalEngineTests extends EngineTestCase {
             recoveringEngine = new InternalEngine(initialEngine.config()) {
 
                 @Override
-                protected void commitIndexWriter(CompositeIndexWriter writer, String translogUUID) throws IOException {
+                protected void commitIndexWriter(DocumentIndexWriter writer, String translogUUID) throws IOException {
                     committed.set(true);
                     super.commitIndexWriter(writer, translogUUID);
                 }
@@ -3966,7 +3967,7 @@ public class InternalEngineTests extends EngineTestCase {
                 ) {
 
                     @Override
-                    protected void commitIndexWriter(CompositeIndexWriter writer, String translogUUID) throws IOException {
+                    protected void commitIndexWriter(DocumentIndexWriter writer, String translogUUID) throws IOException {
                         super.commitIndexWriter(writer, translogUUID);
                         if (throwErrorOnCommit.get()) {
                             throw new RuntimeException("power's out");
@@ -6297,7 +6298,7 @@ public class InternalEngineTests extends EngineTestCase {
         final AtomicLong lastSyncedGlobalCheckpointBeforeCommit = new AtomicLong(Translog.readGlobalCheckpoint(translogPath, translogUUID));
         try (InternalEngine engine = new InternalEngine(engineConfig) {
             @Override
-            protected void commitIndexWriter(CompositeIndexWriter writer, String translogUUID) throws IOException {
+            protected void commitIndexWriter(DocumentIndexWriter writer, String translogUUID) throws IOException {
                 lastSyncedGlobalCheckpointBeforeCommit.set(Translog.readGlobalCheckpoint(translogPath, translogUUID));
                 // Advance the global checkpoint during the flush to create a lag between a persisted global checkpoint in the translog
                 // (this value is visible to the deletion policy) and an in memory global checkpoint in the SequenceNumbersService.
@@ -7016,8 +7017,7 @@ public class InternalEngineTests extends EngineTestCase {
                     Engine.IndexResult indexResult = engine.index((Engine.Index) op);
                     assertThat(indexResult.getFailure(), nullValue());
                     expectedSeqNos.add(indexResult.getSeqNo());
-                }
-                else {
+                } else {
                     Engine.DeleteResult deleteResult = engine.delete((Engine.Delete) op);
                     assertThat(deleteResult.getFailure(), nullValue());
                     expectedSeqNos.add(deleteResult.getSeqNo());
@@ -8597,7 +8597,7 @@ public class InternalEngineTests extends EngineTestCase {
             try (InternalEngine engine = createEngine(defaultSettings, store, createTempDir(), NoMergePolicy.INSTANCE, (directory, iwc) -> {
                 throwingIndexWriter.set(new AddIndexesFailingIndexWriter(directory, iwc));
                 return throwingIndexWriter.get();
-            })){
+            })) {
                 // test document failure while indexing
                 if (randomBoolean()) {
                     throwingIndexWriter.get().setThrowFailure(() -> new IOException("simulated"));
@@ -8634,7 +8634,7 @@ public class InternalEngineTests extends EngineTestCase {
             try (InternalEngine engine = createEngine(defaultSettings, store, createTempDir(), NoMergePolicy.INSTANCE, (directory, iwc) -> {
                 throwingIndexWriter.set(new AddIndexesFailingIndexWriter(directory, iwc));
                 return throwingIndexWriter.get();
-            })){
+            })) {
                 // test document failure while indexing
                 if (randomBoolean()) {
                     throwingIndexWriter.get().setThrowFailure(() -> new IOException("simulated"));

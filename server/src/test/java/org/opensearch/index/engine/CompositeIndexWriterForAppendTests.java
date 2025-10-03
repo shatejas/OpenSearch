@@ -8,75 +8,35 @@
 
 package org.opensearch.index.engine;
 
-import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexableField;
-import org.apache.lucene.index.MergePolicy;
-import org.apache.lucene.index.NoMergePolicy;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.ReferenceManager;
-import org.apache.lucene.search.Sort;
-import org.apache.lucene.search.SortedSetSortField;
 import org.apache.lucene.store.AlreadyClosedException;
-import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.LockObtainFailedException;
-import org.junit.After;
-import org.junit.Before;
-import org.opensearch.action.support.replication.ReplicationResponse;
-import org.opensearch.cluster.routing.AllocationId;
 import org.opensearch.common.CheckedBiFunction;
-import org.opensearch.common.Nullable;
 import org.opensearch.common.lease.Releasable;
-import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.lucene.uid.Versions;
-import org.opensearch.common.settings.Settings;
-import org.opensearch.common.unit.TimeValue;
-import org.opensearch.common.util.BigArrays;
 import org.opensearch.common.util.io.IOUtils;
-import org.opensearch.core.index.Index;
-import org.opensearch.core.index.shard.ShardId;
-import org.opensearch.core.indices.breaker.CircuitBreakerService;
-import org.opensearch.core.indices.breaker.NoneCircuitBreakerService;
-import org.opensearch.index.IndexSettings;
+import org.opensearch.index.BucketedCompositeDirectory;
 import org.opensearch.index.VersionType;
-import org.opensearch.index.codec.CodecService;
 import org.opensearch.index.mapper.ParsedDocument;
-import org.opensearch.index.seqno.ReplicationTracker;
-import org.opensearch.index.seqno.RetentionLeases;
-import org.opensearch.index.seqno.SequenceNumbers;
-import org.opensearch.index.shard.ShardPath;
-import org.opensearch.index.store.FsDirectoryFactory;
-import org.opensearch.index.store.Store;
-import org.opensearch.index.translog.TranslogConfig;
-import org.opensearch.test.DummyShardLock;
-import org.opensearch.test.IndexSettingsModule;
-import org.opensearch.threadpool.TestThreadPool;
-import org.opensearch.threadpool.ThreadPool;
 
 import java.io.IOException;
-import java.nio.file.Path;
-import java.util.Collections;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.LongSupplier;
-import java.util.function.Supplier;
 
-import static java.util.Collections.emptyList;
-import static org.mockito.Mockito.mock;
 import static org.opensearch.index.seqno.SequenceNumbers.UNASSIGNED_SEQ_NO;
+import static org.mockito.Mockito.mock;
 
 public class CompositeIndexWriterForAppendTests extends CriteriaBasedCompositeIndexWriterBaseTests {
 
     // For refresh
     public void testGetIndexWriterWithRotatingMapAlwaysPutWriterInCurrentMap() throws IOException, InterruptedException {
-        AtomicReference<CompositeIndexWriter.LiveIndexWriterDeletesMap> liveIndexWriterDeletesMap =
-            new AtomicReference<>(new CompositeIndexWriter.LiveIndexWriterDeletesMap());
+        AtomicReference<CompositeIndexWriter.LiveIndexWriterDeletesMap> liveIndexWriterDeletesMap = new AtomicReference<>(
+            new CompositeIndexWriter.LiveIndexWriterDeletesMap()
+        );
         CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean run = new AtomicBoolean(true);
         Thread refresher = new Thread(() -> {
@@ -144,9 +104,14 @@ public class CompositeIndexWriterForAppendTests extends CriteriaBasedCompositeIn
         Semaphore indexedDocs = new Semaphore(0);
         AtomicInteger computeCount = new AtomicInteger(0);
         AtomicInteger rotationCount = new AtomicInteger(0);
-        AtomicReference<CompositeIndexWriter.LiveIndexWriterDeletesMap> mapRef = new AtomicReference<>(new CompositeIndexWriter.LiveIndexWriterDeletesMap());
-        CheckedBiFunction<String, CompositeIndexWriter.CriteriaBasedIndexWriterLookup, CompositeIndexWriter.DisposableIndexWriter, IOException> supplier =
-            (crit, lookup) -> mock(CompositeIndexWriter.DisposableIndexWriter.class);
+        AtomicReference<CompositeIndexWriter.LiveIndexWriterDeletesMap> mapRef = new AtomicReference<>(
+            new CompositeIndexWriter.LiveIndexWriterDeletesMap()
+        );
+        CheckedBiFunction<
+            String,
+            CompositeIndexWriter.CriteriaBasedIndexWriterLookup,
+            CompositeIndexWriter.DisposableIndexWriter,
+            IOException> supplier = (crit, lookup) -> mock(CompositeIndexWriter.DisposableIndexWriter.class);
 
         // Compute thread
         Thread computeThread = new Thread(() -> {
@@ -187,14 +152,19 @@ public class CompositeIndexWriterForAppendTests extends CriteriaBasedCompositeIn
     }
 
     public void testConcurrentIndexingDuringRefresh() throws IOException, InterruptedException {
-        CompositeIndexWriter compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), this::createChildWriterFactory, softDeletesField);
+        CompositeIndexWriter compositeIndexWriter = new CompositeIndexWriter(
+            config(),
+            createWriter(),
+            newSoftDeletesPolicy(),
+            softDeletesField
+        );
         AtomicBoolean run = new AtomicBoolean(true);
         Thread indexer = new Thread(() -> {
             while (run.get()) {
                 String id = Integer.toString(randomIntBetween(1, 100));
                 try {
                     Engine.Index operation = indexForDoc(createParsedDoc(id, null));
-                    try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+                    try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                         compositeIndexWriter.addDocuments(operation.docs(), operation.uid());
                     }
                 } catch (IOException e) {
@@ -210,8 +180,7 @@ public class CompositeIndexWriterForAppendTests extends CriteriaBasedCompositeIn
                 try {
                     compositeIndexWriter.beforeRefresh();
                     compositeIndexWriter.afterRefresh(true);
-                } catch (IOException e) {
-                }
+                } catch (IOException e) {}
             }
         });
 
@@ -228,22 +197,36 @@ public class CompositeIndexWriterForAppendTests extends CriteriaBasedCompositeIn
 
     public void testTreatDocumentFailureAsFatalErrorOnGroupSpecificIndexWriter() throws IOException {
         AtomicReference<IOException> addDocException = new AtomicReference<>();
-        CompositeIndexWriter compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), (criteria, lookup) -> new CompositeIndexWriter.DisposableIndexWriter(new IndexWriter(store.newTempDirectory("temp_" + criteria + "_" + UUID.randomUUID()),
-            newIndexWriterConfig()) {
+        CompositeIndexWriter compositeIndexWriter = new CompositeIndexWriter(
+            config(),
+            createWriter(),
+            newSoftDeletesPolicy(),
+            softDeletesField
+        ) {
             @Override
-            public long addDocuments(Iterable<? extends Iterable<? extends IndexableField>> docs) throws IOException {
-                final IOException ex = addDocException.getAndSet(null);
-                if (ex != null) {
-                    throw ex;
-                }
-                return super.addDocuments(docs);
+            DisposableIndexWriter createChildWriterUtil(String criteria, CriteriaBasedIndexWriterLookup lookup) throws IOException {
+                return new CompositeIndexWriter.DisposableIndexWriter(
+                    new IndexWriter(
+                        store.newTempDirectory(BucketedCompositeDirectory.CHILD_DIRECTORY_PREFIX + criteria + "_" + UUID.randomUUID()),
+                        newIndexWriterConfig()
+                    ) {
+                        @Override
+                        public long addDocuments(Iterable<? extends Iterable<? extends IndexableField>> docs) throws IOException {
+                            final IOException ex = addDocException.getAndSet(null);
+                            if (ex != null) {
+                                throw ex;
+                            }
+                            return super.addDocuments(docs);
+                        }
+                    },
+                    lookup
+                );
             }
-        }, lookup), softDeletesField);
-
+        };
 
         String id = Integer.toString(randomIntBetween(1, 100));
         Engine.Index operation = indexForDoc(createParsedDoc(id, null));
-        try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+        try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
             addDocException.set(new IOException("simulated"));
             expectThrows(IOException.class, () -> compositeIndexWriter.addDocuments(operation.docs(), operation.uid()));
         } finally {

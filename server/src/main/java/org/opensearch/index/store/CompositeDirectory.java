@@ -423,9 +423,9 @@ public class CompositeDirectory extends FilterDirectory {
         if (fileCache == null) throw new IllegalStateException(
             "File Cache not initialized on this Node, cannot create Composite Directory without FileCache"
         );
-        if (localDirectory instanceof FSDirectory == false && !(localDirectory instanceof FilterDirectory && ((FilterDirectory) localDirectory).getDelegate() instanceof FSDirectory)) throw new IllegalStateException(
-            "For Composite Directory, local directory must be of type FSDirectory"
-        );
+        if (localDirectory instanceof FSDirectory == false
+            && !(localDirectory instanceof FilterDirectory && ((FilterDirectory) localDirectory).getDelegate() instanceof FSDirectory))
+            throw new IllegalStateException("For Composite Directory, local directory must be of type FSDirectory");
         if (remoteDirectory instanceof RemoteSegmentStoreDirectory == false) throw new IllegalStateException(
             "For Composite Directory, remote directory must be of type RemoteSegmentStoreDirectory"
         );

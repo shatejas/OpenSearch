@@ -20,12 +20,9 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.search.Sort;
-import org.apache.lucene.search.SortedSetSortField;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.LockObtainFailedException;
 import org.apache.lucene.util.BytesRef;
-import org.junit.After;
-import org.junit.Before;
 import org.opensearch.Version;
 import org.opensearch.action.support.replication.ReplicationResponse;
 import org.opensearch.cluster.ClusterModule;
@@ -50,6 +47,7 @@ import org.opensearch.core.indices.breaker.NoneCircuitBreakerService;
 import org.opensearch.core.xcontent.MediaTypeRegistry;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.core.xcontent.XContentBuilder;
+import org.opensearch.index.BucketedCompositeDirectory;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.MapperTestUtils;
 import org.opensearch.index.codec.CodecService;
@@ -76,6 +74,8 @@ import org.opensearch.test.IndexSettingsModule;
 import org.opensearch.test.OpenSearchTestCase;
 import org.opensearch.threadpool.TestThreadPool;
 import org.opensearch.threadpool.ThreadPool;
+import org.junit.After;
+import org.junit.Before;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -84,12 +84,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 import static java.util.Collections.emptyList;
 import static org.opensearch.index.engine.Engine.Operation.Origin.PEER_RECOVERY;
 import static org.opensearch.index.engine.Engine.Operation.Origin.REPLICA;
+import static org.opensearch.index.seqno.SequenceNumbers.NO_OPS_PERFORMED;
 
 public class CriteriaBasedCompositeIndexWriterBaseTests extends OpenSearchTestCase {
     protected static final IndexSettings INDEX_SETTINGS = IndexSettingsModule.newIndexSettings("index", Settings.EMPTY);
@@ -171,7 +173,10 @@ public class CriteriaBasedCompositeIndexWriterBaseTests extends OpenSearchTestCa
 
     protected IndexWriter createWriter() throws IOException {
         try {
-            return new IndexWriter(store.directory(), newIndexWriterConfig().setSoftDeletesField(Lucene.SOFT_DELETES_FIELD).setCommitOnClose(true));
+            return new IndexWriter(
+                store.directory(),
+                newIndexWriterConfig().setSoftDeletesField(Lucene.SOFT_DELETES_FIELD).setCommitOnClose(true)
+            );
         } catch (LockObtainFailedException ex) {
             logger.warn("could not lock IndexWriter", ex);
             throw ex;
@@ -203,9 +208,19 @@ public class CriteriaBasedCompositeIndexWriterBaseTests extends OpenSearchTestCa
     }
 
     public EngineConfig config() {
-        return config(INDEX_SETTINGS, store, primaryTranslogDir, NoMergePolicy.INSTANCE,
-            null, null, new Sort(new SortedSetSortField("foo1", false)),
-            null, null, new NoneCircuitBreakerService(), null);
+        return config(
+            INDEX_SETTINGS,
+            store,
+            primaryTranslogDir,
+            NoMergePolicy.INSTANCE,
+            null,
+            null,
+            null,
+            null,
+            null,
+            new NoneCircuitBreakerService(),
+            null
+        );
     }
 
     public EngineConfig config(
@@ -423,9 +438,17 @@ public class CriteriaBasedCompositeIndexWriterBaseTests extends OpenSearchTestCa
         return mapperService;
     }
 
-    protected CompositeIndexWriter.DisposableIndexWriter createChildWriterFactory(String criteria, CompositeIndexWriter.CriteriaBasedIndexWriterLookup lookup) throws IOException {
-        return new CompositeIndexWriter.DisposableIndexWriter(new IndexWriter(store.newTempDirectory("temp_" + criteria + "_" + UUID.randomUUID()),
-            newIndexWriterConfig().setSoftDeletesField(Lucene.SOFT_DELETES_FIELD).setCommitOnClose(true)), lookup);
+    protected CompositeIndexWriter.DisposableIndexWriter createChildWriterFactory(
+        String criteria,
+        CompositeIndexWriter.CriteriaBasedIndexWriterLookup lookup
+    ) throws IOException {
+        return new CompositeIndexWriter.DisposableIndexWriter(
+            new IndexWriter(
+                store.newTempDirectory(BucketedCompositeDirectory.CHILD_DIRECTORY_PREFIX + criteria + "_" + UUID.randomUUID()),
+                newIndexWriterConfig().setSoftDeletesField(Lucene.SOFT_DELETES_FIELD).setCommitOnClose(true)
+            ),
+            lookup
+        );
     }
 
     @Override
@@ -433,5 +456,18 @@ public class CriteriaBasedCompositeIndexWriterBaseTests extends OpenSearchTestCa
     public void tearDown() throws Exception {
         super.tearDown();
         IOUtils.close(store, () -> terminate(threadPool));
+    }
+
+    public SoftDeletesPolicy newSoftDeletesPolicy() {
+        final AtomicLong globalCheckpoint = new AtomicLong();
+        final int extraRetainedOps = between(0, 100);
+        final SoftDeletesPolicy softDeletesPolicy = new SoftDeletesPolicy(
+            globalCheckpoint::get,
+            NO_OPS_PERFORMED,
+            extraRetainedOps,
+            () -> RetentionLeases.EMPTY
+        );
+
+        return softDeletesPolicy;
     }
 }

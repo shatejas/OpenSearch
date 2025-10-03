@@ -88,6 +88,7 @@ import org.opensearch.core.index.shard.ShardId;
 import org.opensearch.env.NodeEnvironment;
 import org.opensearch.env.ShardLock;
 import org.opensearch.env.ShardLockObtainFailedException;
+import org.opensearch.index.BucketedCompositeDirectory;
 import org.opensearch.index.IndexSettings;
 import org.opensearch.index.engine.CombinedDeletionPolicy;
 import org.opensearch.index.engine.Engine;
@@ -108,7 +109,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -116,7 +116,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -960,7 +959,8 @@ public class Store extends AbstractIndexShardComponent implements Closeable, Ref
         @Override
         public void copyFrom(Directory from, String src, String dest, IOContext context) throws IOException {
             long fileSize = from.fileLength(src);
-            boolean isCopyingFromRemoteDirectory = !((from instanceof FSDirectory) && ((((FSDirectory) from).getDirectory().toString().contains("temp_"))));
+            boolean isCopyingFromRemoteDirectory = !((from instanceof FSDirectory)
+                && ((((FSDirectory) from).getDirectory().toString().contains(BucketedCompositeDirectory.CHILD_DIRECTORY_PREFIX))));
             if (isCopyingFromRemoteDirectory) {
                 // Update the stats only when we are copying from remote to local directory. As this function gets called
                 // from addIndexes as well when data from child level writer is synced from parent level writer.

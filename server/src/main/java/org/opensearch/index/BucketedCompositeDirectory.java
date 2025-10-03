@@ -14,18 +14,23 @@ import org.apache.lucene.store.FilterDirectory;
 import java.io.IOException;
 import java.util.Arrays;
 
-public class CriteriaBasedCompositeDirectory extends FilterDirectory {
+public class BucketedCompositeDirectory extends FilterDirectory {
     /**
      * Sole constructor, typically called from sub-classes.
      *
-     * @param in
      */
-    protected CriteriaBasedCompositeDirectory(Directory in) {
+
+    public static final String CHILD_DIRECTORY_PREFIX = "temp_";
+
+    protected BucketedCompositeDirectory(Directory in) {
         super(in);
     }
 
     @Override
     public String[] listAll() throws IOException {
-        return Arrays.stream(super.listAll()).filter(fileName -> !fileName.startsWith("temp_")).distinct().toArray(String[]::new);
+        return Arrays.stream(super.listAll())
+            .filter(fileName -> !fileName.startsWith(CHILD_DIRECTORY_PREFIX))
+            .distinct()
+            .toArray(String[]::new);
     }
 }

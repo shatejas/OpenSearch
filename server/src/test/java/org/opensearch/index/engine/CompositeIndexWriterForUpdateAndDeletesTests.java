@@ -9,20 +9,10 @@
 package org.opensearch.index.engine;
 
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.Term;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.TermQuery;
-import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.search.TotalHitCountCollector;
 import org.opensearch.common.lease.Releasable;
-import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.util.io.IOUtils;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.UUID;
 
 public class CompositeIndexWriterForUpdateAndDeletesTests extends CriteriaBasedCompositeIndexWriterBaseTests {
 
@@ -30,23 +20,21 @@ public class CompositeIndexWriterForUpdateAndDeletesTests extends CriteriaBasedC
         final String id = "test";
         CompositeIndexWriter compositeIndexWriter = null;
         try {
-            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), this::createChildWriterFactory,
-                softDeletesField);
+            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), newSoftDeletesPolicy(), softDeletesField);
             Engine.Index operation = indexForDoc(createParsedDoc(id, null));
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                 compositeIndexWriter.addDocuments(operation.docs(), operation.uid());
             }
 
             compositeIndexWriter.beforeRefresh();
             compositeIndexWriter.afterRefresh(true);
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
-                compositeIndexWriter.deleteDocument(operation.uid(), false, newDeleteTombstoneDoc(id),
-                    1, 2, primaryTerm.get(), softDeletesField);
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+                compositeIndexWriter.deleteDocument(operation.uid(), false, newDeleteTombstoneDoc(id), softDeletesField);
             }
 
             compositeIndexWriter.beforeRefresh();
             compositeIndexWriter.afterRefresh(true);
-            try(DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
+            try (DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
                 assertEquals(0, directoryReader.numDocs());
             }
         } finally {
@@ -60,17 +48,17 @@ public class CompositeIndexWriterForUpdateAndDeletesTests extends CriteriaBasedC
         final String id = "test";
         CompositeIndexWriter compositeIndexWriter = null;
         try {
-            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), this::createChildWriterFactory, softDeletesField);
+            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), newSoftDeletesPolicy(), softDeletesField);
             Engine.Index operation = indexForDoc(createParsedDoc(id, null));
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                 compositeIndexWriter.addDocuments(operation.docs(), operation.uid());
-                compositeIndexWriter.deleteDocument(operation.uid(), false, newDeleteTombstoneDoc(id), 1, 2, primaryTerm.get(), softDeletesField);
+                compositeIndexWriter.deleteDocument(operation.uid(), false, newDeleteTombstoneDoc(id), softDeletesField);
             }
 
             compositeIndexWriter.beforeRefresh();
             compositeIndexWriter.afterRefresh(true);
 
-            try(DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
+            try (DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
                 assertEquals(0, directoryReader.numDocs());
             }
         } finally {
@@ -84,9 +72,9 @@ public class CompositeIndexWriterForUpdateAndDeletesTests extends CriteriaBasedC
         final String id = "test";
         CompositeIndexWriter compositeIndexWriter = null;
         try {
-            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), this::createChildWriterFactory, softDeletesField);
+            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), newSoftDeletesPolicy(), softDeletesField);
             Engine.Index operation = indexForDoc(createParsedDoc(id, null));
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                 compositeIndexWriter.addDocuments(operation.docs(), operation.uid());
             }
 
@@ -94,14 +82,14 @@ public class CompositeIndexWriterForUpdateAndDeletesTests extends CriteriaBasedC
             compositeIndexWriter.afterRefresh(true);
 
             operation = indexForDoc(createParsedDoc(id, null));
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                 compositeIndexWriter.softUpdateDocuments(operation.uid(), operation.docs(), 2, 2, primaryTerm.get(), softDeletesField);
-                compositeIndexWriter.deleteDocument(operation.uid(), false, newDeleteTombstoneDoc(id), 1, 2, primaryTerm.get(), softDeletesField);
+                compositeIndexWriter.deleteDocument(operation.uid(), false, newDeleteTombstoneDoc(id), softDeletesField);
             }
 
             compositeIndexWriter.beforeRefresh();
             compositeIndexWriter.afterRefresh(true);
-            try(DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
+            try (DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
                 assertEquals(0, directoryReader.numDocs());
             }
         } finally {
@@ -115,9 +103,9 @@ public class CompositeIndexWriterForUpdateAndDeletesTests extends CriteriaBasedC
         final String id = "test";
         CompositeIndexWriter compositeIndexWriter = null;
         try {
-            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), this::createChildWriterFactory, softDeletesField);
+            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), newSoftDeletesPolicy(), softDeletesField);
             Engine.Index operation = indexForDoc(createParsedDoc(id, null));
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                 compositeIndexWriter.addDocuments(operation.docs(), operation.uid());
             }
 
@@ -125,13 +113,13 @@ public class CompositeIndexWriterForUpdateAndDeletesTests extends CriteriaBasedC
             compositeIndexWriter.afterRefresh(true);
             operation = indexForDoc(createParsedDoc(id, null));
 
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                 compositeIndexWriter.softUpdateDocuments(operation.uid(), operation.docs(), 2, 2, primaryTerm.get(), softDeletesField);
             }
 
             compositeIndexWriter.beforeRefresh();
             compositeIndexWriter.afterRefresh(true);
-            try(DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
+            try (DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
                 assertEquals(1, directoryReader.numDocs());
             }
         } finally {
@@ -145,20 +133,20 @@ public class CompositeIndexWriterForUpdateAndDeletesTests extends CriteriaBasedC
         final String id = "test";
         CompositeIndexWriter compositeIndexWriter = null;
         try {
-            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), this::createChildWriterFactory, softDeletesField);
+            compositeIndexWriter = new CompositeIndexWriter(config(), createWriter(), newSoftDeletesPolicy(), softDeletesField);
             Engine.Index operation = indexForDoc(createParsedDoc(id, null));
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                 compositeIndexWriter.addDocuments(operation.docs(), operation.uid());
             }
 
             operation = indexForDoc(createParsedDoc(id, null));
-            try(Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
+            try (Releasable ignore1 = compositeIndexWriter.acquireLock(operation.uid().bytes())) {
                 compositeIndexWriter.softUpdateDocuments(operation.uid(), operation.docs(), 2, 2, primaryTerm.get(), softDeletesField);
             }
 
             compositeIndexWriter.beforeRefresh();
             compositeIndexWriter.afterRefresh(true);
-            try(DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
+            try (DirectoryReader directoryReader = DirectoryReader.open(compositeIndexWriter.getAccumulatingIndexWriter())) {
                 assertEquals(1, directoryReader.numDocs());
             }
         } finally {

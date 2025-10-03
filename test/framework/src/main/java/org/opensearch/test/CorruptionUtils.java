@@ -42,6 +42,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
+import org.opensearch.index.BucketedCompositeDirectory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -71,7 +72,7 @@ public final class CorruptionUtils {
             boolean segmentFile = name.startsWith("segments_") || name.endsWith(".si");
             return Files.isRegularFile(p)
                 && name.startsWith("extra") == false // Skip files added by Lucene's ExtrasFS
-                && !p.toAbsolutePath().getParent().toString().contains("temp_")
+                && !p.toAbsolutePath().getParent().toString().contains(BucketedCompositeDirectory.CHILD_DIRECTORY_PREFIX) // Skip child level directories
                 && IndexWriter.WRITE_LOCK_NAME.equals(name) == false
 
                 && (corruptSegments ? segmentFile : segmentFile == false);

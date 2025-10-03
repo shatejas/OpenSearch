@@ -20,15 +20,17 @@ import java.io.IOException;
 
 public class CriteriaBasedCodec extends FilterCodec {
 
-    private final String criteria;
+    private final String bucket;
+    public static final String BUCKET_NAME = "bucket";
+
     public CriteriaBasedCodec() {
         super("CriteriaBasedCodec", new Lucene101Codec());
-        criteria = null;
+        bucket = null;
     }
 
-    public CriteriaBasedCodec(Codec delegate, String criteria) {
+    public CriteriaBasedCodec(Codec delegate, String bucket) {
         super("CriteriaBasedCodec", delegate);
-        this.criteria = criteria;
+        this.bucket = bucket;
     }
 
     @Override
@@ -41,7 +43,7 @@ public class CriteriaBasedCodec extends FilterCodec {
 
             @Override
             public void write(Directory directory, SegmentInfo info, IOContext ioContext) throws IOException {
-                info.putAttribute("criteria", criteria);
+                info.putAttribute(BUCKET_NAME, bucket);
                 delegate.segmentInfoFormat().write(directory, info, ioContext);
             }
         };

@@ -13,6 +13,7 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.LiveIndexWriterConfig;
 import org.apache.lucene.index.Term;
@@ -33,7 +34,7 @@ import org.opensearch.core.Assertions;
 import org.opensearch.index.mapper.IdFieldMapper;
 import org.opensearch.index.mapper.SeqNoFieldMapper;
 import org.opensearch.index.mapper.VersionFieldMapper;
-import org.opensearch.index.seqno.SequenceNumbers;
+import org.opensearch.index.store.Store;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -42,16 +43,18 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
+import static org.opensearch.index.BucketedCompositeDirectory.CHILD_DIRECTORY_PREFIX;
 
 /**
  * Maps _uid value to its deletes information. It also contains information on IndexWriter.
  *
  */
-public class CompositeIndexWriter implements ReferenceManager.RefreshListener, Closeable {
+public class CompositeIndexWriter implements ReferenceManager.RefreshListener, DocumentIndexWriter {
 
     private final KeyedLock<BytesRef> keyedLock = new KeyedLock<>();
 
@@ -61,13 +64,21 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
     private final NumericDocValuesField softDeletesField;
     protected final Logger logger;
     private volatile boolean closed;
+    private final SoftDeletesPolicy softDeletesPolicy;
+    private final Store store;
 
-    public CompositeIndexWriter(EngineConfig engineConfig, IndexWriter accumulatingIndexWriter,
-                                CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> childIndexWriterFactory, NumericDocValuesField softDeletesField) {
+    public CompositeIndexWriter(
+        EngineConfig engineConfig,
+        IndexWriter accumulatingIndexWriter,
+        SoftDeletesPolicy softDeletesPolicy,
+        NumericDocValuesField softDeletesField
+    ) {
         this.engineConfig = engineConfig;
         this.accumulatingIndexWriter = accumulatingIndexWriter;
-        this.childIndexWriterFactory = childIndexWriterFactory;
+        this.softDeletesPolicy = softDeletesPolicy;
+        this.childIndexWriterFactory = this::createChildWriterUtil;
         this.softDeletesField = softDeletesField;
+        this.store = engineConfig.getStore();
         this.logger = Loggers.getLogger(Engine.class, engineConfig.getShardId());
     }
 
@@ -79,7 +90,6 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         public DisposableIndexWriter(IndexWriter indexWriter, CriteriaBasedIndexWriterLookup lookupMap) {
             this.indexWriter = indexWriter;
             this.lookupMap = lookupMap;
-
         }
 
         public IndexWriter getIndexWriter() {
@@ -101,9 +111,19 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         private final long version;
         private boolean closed;
 
-        private static final CriteriaBasedIndexWriterLookup EMPTY = new CriteriaBasedIndexWriterLookup(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(), 0);
+        private static final CriteriaBasedIndexWriterLookup EMPTY = new CriteriaBasedIndexWriterLookup(
+            Collections.emptyMap(),
+            Collections.emptyMap(),
+            Collections.emptyMap(),
+            0
+        );
 
-        private CriteriaBasedIndexWriterLookup(final Map<String, DisposableIndexWriter> criteriaBasedIndexWriterMap, Map<BytesRef, DeleteEntry> lastDeleteEntrySet, Map<BytesRef, String> criteria, long version) {
+        private CriteriaBasedIndexWriterLookup(
+            final Map<String, DisposableIndexWriter> criteriaBasedIndexWriterMap,
+            Map<BytesRef, DeleteEntry> lastDeleteEntrySet,
+            Map<BytesRef, String> criteria,
+            long version
+        ) {
             this.criteriaBasedIndexWriterMap = criteriaBasedIndexWriterMap;
             this.lastDeleteEntrySet = lastDeleteEntrySet;
             this.mapLock = new ReentrantReadWriteLock();
@@ -114,8 +134,10 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
             this.closed = false;
         }
 
-        DisposableIndexWriter computeIndexWriterIfAbsentForCriteria(String criteria,
-                                                                    CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> indexWriterSupplier) {
+        DisposableIndexWriter computeIndexWriterIfAbsentForCriteria(
+            String criteria,
+            CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> indexWriterSupplier
+        ) {
             return criteriaBasedIndexWriterMap.computeIfAbsent(criteria, (key) -> {
                 try {
                     return indexWriterSupplier.apply(criteria, this);
@@ -288,9 +310,15 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         }
 
         LiveIndexWriterDeletesMap() {
-            this(new CriteriaBasedIndexWriterLookup(ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(),
-                    ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(), ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(), 0),
-                CriteriaBasedIndexWriterLookup.EMPTY);
+            this(
+                new CriteriaBasedIndexWriterLookup(
+                    ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(),
+                    ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(),
+                    ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(),
+                    0
+                ),
+                CriteriaBasedIndexWriterLookup.EMPTY
+            );
         }
 
         /**
@@ -300,10 +328,13 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
             // This ensures writer map is not rotated during the time when we are obtaining an IndexWriter from map. As
             // this may cause updates to go out of sync with current IndexWriter.
             return new LiveIndexWriterDeletesMap(
-                    new CriteriaBasedIndexWriterLookup(ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(current.sizeOfCriteriaBasedIndexWriterMap()),
-                            ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(current.sizeOfLastDeleteEntrySet()),
-                        ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(current.sizeOfLastDeleteEntrySet()), current.version + 1),
-                    current
+                new CriteriaBasedIndexWriterLookup(
+                    ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(current.sizeOfCriteriaBasedIndexWriterMap()),
+                    ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(current.sizeOfLastDeleteEntrySet()),
+                    ConcurrentCollections.newConcurrentMapWithAggressiveConcurrency(current.sizeOfLastDeleteEntrySet()),
+                    current.version + 1
+                ),
+                current
             );
         }
 
@@ -326,8 +357,10 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
             return current.getCriteriaForDoc(key);
         }
 
-        DisposableIndexWriter computeIndexWriterIfAbsentForCriteria(String criteria,
-                                                                    CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> indexWriterSupplier) {
+        DisposableIndexWriter computeIndexWriterIfAbsentForCriteria(
+            String criteria,
+            CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> indexWriterSupplier
+        ) {
             boolean success = false;
             try {
                 CriteriaBasedIndexWriterLookup current = getCurrentMap();
@@ -363,7 +396,8 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         // Rotate map first so all new writes goes to new generation writers.
         liveIndexWriterDeletesMap = liveIndexWriterDeletesMap.buildTransitionMap();
         logger.debug("Trying to acquire write lock during refresh of composite IndexWriter. ");
-        try(Releasable ignore = liveIndexWriterDeletesMap.old.mapWriteLock.acquire();
+        try (
+            Releasable ignore = liveIndexWriterDeletesMap.old.mapWriteLock.acquire();
             CriteriaBasedIndexWriterLookup oldMap = liveIndexWriterDeletesMap.old;
         ) {
             logger.debug("Acquired write lock during refresh of composite IndexWriter.");
@@ -377,7 +411,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         final Map<String, CompositeIndexWriter.DisposableIndexWriter> markForRefreshIndexWritersMap = oldMap.criteriaBasedIndexWriterMap;
         deletePreviousVersionsForUpdatedDocuments();
         final List<Directory> directoryToCombine = new ArrayList<>();
-        for (CompositeIndexWriter.DisposableIndexWriter childDisposableWriter: markForRefreshIndexWritersMap.values()) {
+        for (CompositeIndexWriter.DisposableIndexWriter childDisposableWriter : markForRefreshIndexWritersMap.values()) {
             directoryToCombine.add(childDisposableWriter.getIndexWriter().getDirectory());
             childDisposableWriter.getIndexWriter().close();
         }
@@ -390,7 +424,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
 
     private void deletePreviousVersionsForUpdatedDocuments() throws IOException {
         Map<BytesRef, DeleteEntry> deleteEntrySet = getLastDeleteEntrySet();
-        for (DeleteEntry deleteEntry: deleteEntrySet.values()) {
+        for (DeleteEntry deleteEntry : deleteEntrySet.values()) {
             // For both updates and deletes do a delete only in parent. For updates, latest writes will be on mark for flush writer,
             // do delete entry in parent. For delete, do a delete in parent. This will take care of scenario incase deleteInLucene,
             // delete went to mark for refresh.
@@ -410,7 +444,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
      */
     private void addDeleteEntryToWriter(DeleteEntry deleteEntry, IndexWriter currentWriter) throws IOException {
         Document document = new Document();
-        document.add( new Field("_id", "-2", IdFieldMapper.Defaults.FIELD_TYPE));
+        document.add(new Field("_id", "-2", IdFieldMapper.Defaults.FIELD_TYPE));
         document.add(new NumericDocValuesField(VersionFieldMapper.NAME, deleteEntry.version));
         document.add(new NumericDocValuesField(SeqNoFieldMapper.PRIMARY_TERM_NAME, deleteEntry.primaryTerm));
         currentWriter.softUpdateDocument(deleteEntry.term, document, softDeletesField);
@@ -450,21 +484,27 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
     DisposableIndexWriter getIndexWriterForIdFromCurrent(BytesRef uid) {
         assert assertKeyedLockHeldByCurrentThread(uid);
         assert uid.bytes.length == uid.length : "Oversized _uid! UID length: " + uid.length + ", bytes length: " + uid.bytes.length;
-        return getIndexWriterForIdFromCurrent(uid, liveIndexWriterDeletesMap.current);
+        return getIndexWriterForIdFromLookup(uid, liveIndexWriterDeletesMap.current);
+    }
+
+    DisposableIndexWriter getIndexWriterForIdFromOld(BytesRef uid) {
+        assert assertKeyedLockHeldByCurrentThread(uid);
+        assert uid.bytes.length == uid.length : "Oversized _uid! UID length: " + uid.length + ", bytes length: " + uid.bytes.length;
+        return getIndexWriterForIdFromLookup(uid, liveIndexWriterDeletesMap.old);
     }
 
     // Avoid the issue of write lock getting applied on a separate map due to map getting rotated.
-    DisposableIndexWriter getIndexWriterForIdFromCurrent(BytesRef uid, CriteriaBasedIndexWriterLookup currentMaps) {
-        currentMaps.mapReadLock.acquire();
+    DisposableIndexWriter getIndexWriterForIdFromLookup(BytesRef uid, CriteriaBasedIndexWriterLookup indexWriterLookup) {
+        indexWriterLookup.mapReadLock.acquire();
         String criteria = getCriteriaForDoc(uid);
         if (criteria != null) {
-            DisposableIndexWriter disposableIndexWriter = currentMaps.getIndexWriterForCriteria(criteria);
+            DisposableIndexWriter disposableIndexWriter = indexWriterLookup.getIndexWriterForCriteria(criteria);
             if (disposableIndexWriter != null) {
                 return disposableIndexWriter;
             }
         }
 
-        currentMaps.mapReadLock.close();
+        indexWriterLookup.mapReadLock.close();
         return null;
     }
 
@@ -481,13 +521,18 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         return true;
     }
 
-    DisposableIndexWriter computeIndexWriterIfAbsentForCriteria(final String criteria,
-                                                      CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> indexWriterSupplier) throws IOException {
+    DisposableIndexWriter computeIndexWriterIfAbsentForCriteria(
+        final String criteria,
+        CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> indexWriterSupplier
+    ) throws IOException {
         return computeIndexWriterIfAbsentForCriteria(criteria, liveIndexWriterDeletesMap, indexWriterSupplier);
     }
 
-    DisposableIndexWriter computeIndexWriterIfAbsentForCriteria(final String criteria, LiveIndexWriterDeletesMap currentLiveIndexWriterDeletesMap,
-                                                                CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> indexWriterSupplier) {
+    DisposableIndexWriter computeIndexWriterIfAbsentForCriteria(
+        final String criteria,
+        LiveIndexWriterDeletesMap currentLiveIndexWriterDeletesMap,
+        CheckedBiFunction<String, CriteriaBasedIndexWriterLookup, DisposableIndexWriter, IOException> indexWriterSupplier
+    ) {
         return currentLiveIndexWriterDeletesMap.computeIndexWriterIfAbsentForCriteria(criteria, indexWriterSupplier);
     }
 
@@ -495,11 +540,14 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         return liveIndexWriterDeletesMap.old.criteriaBasedIndexWriterMap;
     }
 
+    @Override
     public long getFlushingBytes() {
         ensureOpen();
         long flushingBytes = 0;
         Collection<IndexWriter> currentWriterSet = liveIndexWriterDeletesMap.current.criteriaBasedIndexWriterMap.values()
-            .stream().map(DisposableIndexWriter::getIndexWriter).collect(Collectors.toSet());
+            .stream()
+            .map(DisposableIndexWriter::getIndexWriter)
+            .collect(Collectors.toSet());
         for (IndexWriter currentWriter : currentWriterSet) {
             flushingBytes += currentWriter.getFlushingBytes();
         }
@@ -507,11 +555,15 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         return flushingBytes + accumulatingIndexWriter.getFlushingBytes();
     }
 
+    @Override
     public long getPendingNumDocs() {
         ensureOpen();
         long pendingNumDocs = 0;
         Collection<IndexWriter> currentWriterSet = liveIndexWriterDeletesMap.current.criteriaBasedIndexWriterMap.values()
-            .stream().map(DisposableIndexWriter::getIndexWriter).collect(Collectors.toSet());;
+            .stream()
+            .map(DisposableIndexWriter::getIndexWriter)
+            .collect(Collectors.toSet());
+        ;
         for (IndexWriter currentWriter : currentWriterSet) {
             pendingNumDocs += currentWriter.getPendingNumDocs();
         }
@@ -520,34 +572,43 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         return pendingNumDocs + accumulatingIndexWriter.getPendingNumDocs();
     }
 
+    @Override
     public LiveIndexWriterConfig getConfig() {
         ensureOpen();
         return accumulatingIndexWriter.getConfig();
     }
 
+    @Override
     public synchronized boolean hasPendingMerges() {
         return accumulatingIndexWriter.hasPendingMerges();
     }
 
     // Since we are doing a commit only on parent IndexWriter, in case there is any child level writers or parent writer
     // has uncommited changes, we report it as writer having uncommited changes. Since during add indexes new set of changes will be added.
+    @Override
     public boolean hasUncommittedChanges() {
         // TODO: Should we do this for old writer as well?
         return hasNewIndexingOrUpdates() || accumulatingIndexWriter.hasUncommittedChanges();
     }
 
+    @Override
     public Throwable getTragicException() {
-        Collection<IndexWriter> currentWriterSet = liveIndexWriterDeletesMap.current.criteriaBasedIndexWriterMap.values().stream()
-            .map(DisposableIndexWriter::getIndexWriter).collect(Collectors.toSet());
-        for (IndexWriter writer: currentWriterSet) {
+        Collection<IndexWriter> currentWriterSet = liveIndexWriterDeletesMap.current.criteriaBasedIndexWriterMap.values()
+            .stream()
+            .map(DisposableIndexWriter::getIndexWriter)
+            .collect(Collectors.toSet());
+        for (IndexWriter writer : currentWriterSet) {
             if (writer.isOpen() == false && writer.getTragicException() != null) {
                 return writer.getTragicException();
             }
         }
 
         Collection<IndexWriter> oldWriterSet = liveIndexWriterDeletesMap.old.criteriaBasedIndexWriterMap.values()
-            .stream().map(DisposableIndexWriter::getIndexWriter).collect(Collectors.toSet());;
-        for (IndexWriter writer: oldWriterSet) {
+            .stream()
+            .map(DisposableIndexWriter::getIndexWriter)
+            .collect(Collectors.toSet());
+        ;
+        for (IndexWriter writer : oldWriterSet) {
             if (writer.isOpen() == false && writer.getTragicException() != null) {
                 return writer.getTragicException();
             }
@@ -560,13 +621,16 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         return null;
     }
 
+    @Override
     public final long ramBytesUsed() {
         ensureOpen();
         long ramBytesUsed = 0;
-        Collection<IndexWriter> currentWriterSet = liveIndexWriterDeletesMap.current.criteriaBasedIndexWriterMap.values().stream()
-                .map(DisposableIndexWriter::getIndexWriter).collect(Collectors.toSet());
+        Collection<IndexWriter> currentWriterSet = liveIndexWriterDeletesMap.current.criteriaBasedIndexWriterMap.values()
+            .stream()
+            .map(DisposableIndexWriter::getIndexWriter)
+            .collect(Collectors.toSet());
 
-        try(ReleasableLock ignore = liveIndexWriterDeletesMap.current.mapWriteLock.acquire()) {
+        try (ReleasableLock ignore = liveIndexWriterDeletesMap.current.mapWriteLock.acquire()) {
             for (IndexWriter indexWriter : currentWriterSet) {
                 if (indexWriter.isOpen() == true) {
                     ramBytesUsed += indexWriter.ramBytesUsed();
@@ -574,9 +638,11 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
             }
         }
 
-        Collection<IndexWriter> oldWriterSet = liveIndexWriterDeletesMap.old.criteriaBasedIndexWriterMap.values().stream()
-                .map(DisposableIndexWriter::getIndexWriter).collect(Collectors.toSet());
-        try(ReleasableLock ignore = liveIndexWriterDeletesMap.old.mapWriteLock.acquire()) {
+        Collection<IndexWriter> oldWriterSet = liveIndexWriterDeletesMap.old.criteriaBasedIndexWriterMap.values()
+            .stream()
+            .map(DisposableIndexWriter::getIndexWriter)
+            .collect(Collectors.toSet());
+        try (ReleasableLock ignore = liveIndexWriterDeletesMap.old.mapWriteLock.acquire()) {
             for (IndexWriter indexWriter : oldWriterSet) {
                 if (indexWriter.isOpen() == true) {
                     ramBytesUsed += indexWriter.ramBytesUsed();
@@ -588,24 +654,28 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
     }
 
     // We always set live commit data for parent writer as we are commiting data only in parent writer (as refreshing child level writers).
-    public final synchronized void setLiveCommitData(
-        Iterable<Map.Entry<String, String>> commitUserData) {
+    @Override
+    public final synchronized void setLiveCommitData(Iterable<Map.Entry<String, String>> commitUserData) {
         accumulatingIndexWriter.setLiveCommitData(commitUserData);
     }
 
+    @Override
     public final long commit() throws IOException {
         ensureOpen();
         return accumulatingIndexWriter.commit();
     }
 
+    @Override
     public final synchronized Iterable<Map.Entry<String, String>> getLiveCommitData() {
         return accumulatingIndexWriter.getLiveCommitData();
     }
 
     public void rollback() throws IOException {
         if (shouldClose()) {
-            Collection<IndexWriter> currentWriterSet = liveIndexWriterDeletesMap.current.criteriaBasedIndexWriterMap.values().stream()
-                .map(DisposableIndexWriter::getIndexWriter).collect(Collectors.toSet());
+            Collection<IndexWriter> currentWriterSet = liveIndexWriterDeletesMap.current.criteriaBasedIndexWriterMap.values()
+                .stream()
+                .map(DisposableIndexWriter::getIndexWriter)
+                .collect(Collectors.toSet());
 
             for (IndexWriter indexWriter : currentWriterSet) {
                 if (indexWriter.isOpen() == true) {
@@ -613,8 +683,10 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
                 }
             }
 
-            Collection<IndexWriter> oldWriterSet = liveIndexWriterDeletesMap.old.criteriaBasedIndexWriterMap.values().stream()
-                .map(DisposableIndexWriter::getIndexWriter).collect(Collectors.toSet());
+            Collection<IndexWriter> oldWriterSet = liveIndexWriterDeletesMap.old.criteriaBasedIndexWriterMap.values()
+                .stream()
+                .map(DisposableIndexWriter::getIndexWriter)
+                .collect(Collectors.toSet());
             for (IndexWriter indexWriter : oldWriterSet) {
                 if (indexWriter.isOpen() == true) {
                     indexWriter.rollback();
@@ -637,9 +709,9 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
     }
 
     public boolean isWriteLockedByCurrentThread() {
-        return liveIndexWriterDeletesMap.current.mapLock.isWriteLockedByCurrentThread() || liveIndexWriterDeletesMap.old.mapLock.isWriteLockedByCurrentThread();
+        return liveIndexWriterDeletesMap.current.mapLock.isWriteLockedByCurrentThread()
+            || liveIndexWriterDeletesMap.old.mapLock.isWriteLockedByCurrentThread();
     }
-
 
     @Override
     public void close() throws IOException {
@@ -647,6 +719,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         liveIndexWriterDeletesMap = new LiveIndexWriterDeletesMap();
     }
 
+    @Override
     public synchronized void deleteUnusedFiles() throws IOException {
         accumulatingIndexWriter.deleteUnusedFiles();
     }
@@ -655,84 +728,124 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         return accumulatingIndexWriter;
     }
 
-    public long addDocuments(Iterable<? extends Iterable<? extends IndexableField>> docs, Term uid)
-        throws IOException {
+    @Override
+    public long addDocuments(Iterable<? extends Iterable<? extends IndexableField>> docs, Term uid) throws IOException {
         // We obtain a read lock on a child level IndexWriter and then return it. Post Indexing completes, we close this
         // IndexWriter.
         ensureOpen();
         final String criteria = getGroupingCriteriaForDoc(docs.iterator().next());
         DisposableIndexWriter disposableIndexWriter = getAssociatedIndexWriterForCriteria(criteria);
-        try (CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignoreLock = disposableIndexWriter.getLookupMap().getMapReadLock()) {
+        try (
+            CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignoreLock = disposableIndexWriter.getLookupMap().getMapReadLock();
+            Releasable ignore1 = acquireLock(uid.bytes())
+        ) {
             putCriteria(uid.bytes(), criteria);
             return disposableIndexWriter.getIndexWriter().addDocuments(docs);
         }
     }
 
+    @Override
     public long addDocument(Iterable<? extends IndexableField> doc, Term uid) throws IOException {
         ensureOpen();
         final String criteria = getGroupingCriteriaForDoc(doc);
         DisposableIndexWriter disposableIndexWriter = getAssociatedIndexWriterForCriteria(criteria);
-        try (CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignoreLock = disposableIndexWriter.getLookupMap().getMapReadLock()) {
+        try (
+            CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignoreLock = disposableIndexWriter.getLookupMap().getMapReadLock();
+            Releasable ignore1 = acquireLock(uid.bytes())
+        ) {
             putCriteria(uid.bytes(), criteria);
             return disposableIndexWriter.getIndexWriter().addDocument(doc);
         }
     }
 
+    @Override
     public void softUpdateDocuments(
-        Term uid, Iterable<? extends Iterable<? extends IndexableField>> docs, long version, long seqNo, long primaryTerm, Field... softDeletesField)
-        throws IOException {
+        Term uid,
+        Iterable<? extends Iterable<? extends IndexableField>> docs,
+        long version,
+        long seqNo,
+        long primaryTerm,
+        Field... softDeletesField
+    ) throws IOException {
         ensureOpen();
         final String criteria = getGroupingCriteriaForDoc(docs.iterator().next());
         DisposableIndexWriter disposableIndexWriter = getAssociatedIndexWriterForCriteria(criteria);
-        try (CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignoreLock = disposableIndexWriter.getLookupMap().getMapReadLock()) {
+        try (
+            CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignoreLock = disposableIndexWriter.getLookupMap().getMapReadLock();
+            Releasable ignore1 = acquireLock(uid.bytes())
+        ) {
             putCriteria(uid.bytes(), criteria);
             disposableIndexWriter.getIndexWriter().softUpdateDocuments(uid, docs, softDeletesField);
             // TODO: Do we need to add more info in delete entry like id, seqNo, primaryTerm for debugging??
-            // TODO: Entry can be null for first version or if there is term bum up (validate if this is because we need to keep previous version).
-            //  Validate if this is going wrong?? Last entry should be checked to handle scenario when there is a indexing post delete.
+            // TODO: Entry can be null for first version or if there is term bum up (validate if this is because we need to keep previous
+            // version).
+            // Validate if this is going wrong?? Last entry should be checked to handle scenario when there is a indexing post delete.
             disposableIndexWriter.getLookupMap().putLastDeleteEntry(uid.bytes(), new DeleteEntry(uid, version, seqNo, primaryTerm));
         }
     }
 
+    @Override
     public void softUpdateDocument(
-        Term uid, Iterable<? extends IndexableField> doc, long version, long seqNo, long primaryTerm, Field... softDeletesField) throws IOException {
+        Term uid,
+        Iterable<? extends IndexableField> doc,
+        long version,
+        long seqNo,
+        long primaryTerm,
+        Field... softDeletesField
+    ) throws IOException {
         ensureOpen();
         final String criteria = getGroupingCriteriaForDoc(doc);
         DisposableIndexWriter disposableIndexWriter = getAssociatedIndexWriterForCriteria(criteria);
-        try (CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignoreLock = disposableIndexWriter.getLookupMap().getMapReadLock()) {
+        try (
+            CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignoreLock = disposableIndexWriter.getLookupMap().getMapReadLock();
+            Releasable ignore1 = acquireLock(uid.bytes())
+        ) {
             putCriteria(uid.bytes(), criteria);
             disposableIndexWriter.getIndexWriter().softUpdateDocument(uid, doc, softDeletesField);
             // TODO: Do we need to add more info in delete entry like id, seqNo, primaryTerm for debugging??
-            // TODO: Entry can be null for first version or if there is term bum up (validate if this is because we need to keep previous version).
-            //  Validate if this is going wrong?? Last entry should be checked to handle scenario when there is a indexing post delete.
+            // TODO: Entry can be null for first version or if there is term bum up (validate if this is because we need to keep previous
+            // version).
+            // Validate if this is going wrong?? Last entry should be checked to handle scenario when there is a indexing post delete.
             disposableIndexWriter.getLookupMap().putLastDeleteEntry(uid.bytes(), new DeleteEntry(uid, version, seqNo, primaryTerm));
         }
     }
 
-    public void deleteDocument(Term uid, boolean isStaleOperation, Iterable<? extends IndexableField> doc, long version, long seqNo, long primaryTerm, Field... softDeletesField) throws IOException {
+    @Override
+    public void deleteDocument(Term uid, boolean isStaleOperation, Iterable<? extends IndexableField> doc, Field... softDeletesField)
+        throws IOException {
         ensureOpen();
-        CompositeIndexWriter.DisposableIndexWriter currentDisposableWriter = getIndexWriterForIdFromCurrent(uid.bytes());
-        if (currentDisposableWriter != null) {
-            try(CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignore = currentDisposableWriter.getLookupMap().getMapReadLock()) {
-                deleteInLucene(uid, isStaleOperation, currentDisposableWriter.getIndexWriter(), doc, softDeletesField);
-                // We are adding a delete entry only when we perform a soft update (delete + adding tombstone entry) on current writer.
-                // For stale operation, we are not performing any delete so we skip adding delete entry.
-                if (!isStaleOperation) {
-                    putLastDeleteEntryUnderLockInNewMap(uid.bytes(), new DeleteEntry(uid, version, seqNo, primaryTerm));
+        try (Releasable ignore1 = acquireLock(uid.bytes())) {
+            CompositeIndexWriter.DisposableIndexWriter currentDisposableWriter = getIndexWriterForIdFromCurrent(uid.bytes());
+            if (currentDisposableWriter != null) {
+                try (
+                    CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignore = currentDisposableWriter.getLookupMap().getMapReadLock()
+                ) {
+                    if (currentDisposableWriter.getLookupMap().isClosed() == false) {
+                        deleteInLucene(uid, isStaleOperation, currentDisposableWriter.getIndexWriter(), doc, softDeletesField);
+                    }
                 }
             }
-        } else {
-            deleteInLucene(uid, isStaleOperation, accumulatingIndexWriter, doc, softDeletesField);
-            if (!isStaleOperation) {
-                // Add delete entry here as well just in case there is any index writer in mark for refresh.
-                putLastDeleteEntryUnderLockInNewMap(uid.bytes(), new DeleteEntry(uid, version, seqNo, primaryTerm));
+
+            CompositeIndexWriter.DisposableIndexWriter oldDisposableWriter = getIndexWriterForIdFromOld(uid.bytes());
+            if (oldDisposableWriter != null) {
+                try (CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignore = oldDisposableWriter.getLookupMap().getMapReadLock()) {
+                    if (oldDisposableWriter.getLookupMap().isClosed() == false) {
+                        deleteInLucene(uid, isStaleOperation, oldDisposableWriter.getIndexWriter(), doc, softDeletesField);
+                    }
+                }
             }
 
+            deleteInLucene(uid, isStaleOperation, accumulatingIndexWriter, doc, softDeletesField);
         }
-
     }
 
-    private void deleteInLucene(Term uid, boolean isStaleOperation, IndexWriter currentWriter, Iterable<? extends IndexableField> doc, Field... softDeletesField) throws IOException {
+    private void deleteInLucene(
+        Term uid,
+        boolean isStaleOperation,
+        IndexWriter currentWriter,
+        Iterable<? extends IndexableField> doc,
+        Field... softDeletesField
+    ) throws IOException {
         if (isStaleOperation) {
             currentWriter.addDocument(doc);
         } else {
@@ -759,17 +872,43 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, C
         return "-1";
     }
 
+    @Override
     public void forceMergeDeletes(boolean doWait) throws IOException {
         accumulatingIndexWriter.forceMergeDeletes(doWait);
     }
 
+    @Override
     public final void maybeMerge() throws IOException {
         ensureOpen();
         accumulatingIndexWriter.maybeMerge();
     }
 
+    @Override
     public void forceMerge(int maxNumSegments, boolean doWait) throws IOException {
         ensureOpen();
         accumulatingIndexWriter.forceMerge(maxNumSegments, doWait);
+    }
+
+    CompositeIndexWriter.DisposableIndexWriter createChildWriterUtil(
+        String criteria,
+        CompositeIndexWriter.CriteriaBasedIndexWriterLookup lookup
+    ) throws IOException {
+        return new CompositeIndexWriter.DisposableIndexWriter(
+            IndexWriterUtils.createWriter(
+                store.newTempDirectory(CHILD_DIRECTORY_PREFIX + criteria + "_" + UUID.randomUUID()),
+                new OpenSearchConcurrentMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings()),
+                true,
+                IndexWriterConfig.OpenMode.CREATE,
+                null,
+                softDeletesPolicy,
+                config(),
+                logger
+            ),
+            lookup
+        );
+    }
+
+    private EngineConfig config() {
+        return engineConfig;
     }
 }

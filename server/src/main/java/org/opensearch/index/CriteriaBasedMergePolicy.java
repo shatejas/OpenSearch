@@ -8,10 +8,12 @@
 
 package org.opensearch.index;
 
+import org.apache.lucene.index.FilterMergePolicy;
+import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.MergeTrigger;
 import org.apache.lucene.index.SegmentCommitInfo;
 import org.apache.lucene.index.SegmentInfos;
-import org.apache.lucene.index.TieredMergePolicy;
+import org.opensearch.index.codec.CriteriaBasedCodec;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -20,10 +22,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class CriteriaBasedMergePolicy extends TieredMergePolicy {
+public class CriteriaBasedMergePolicy extends FilterMergePolicy {
+
+    protected final MergePolicy in;
+
+    public CriteriaBasedMergePolicy(MergePolicy in) {
+        super(in);
+        this.in = in;
+    }
+
     @Override
-    public MergeSpecification findMerges(
-        MergeTrigger mergeTrigger, SegmentInfos infos, MergeContext mergeContext) throws IOException {
+    public MergeSpecification findMerges(MergeTrigger mergeTrigger, SegmentInfos infos, MergeContext mergeContext) throws IOException {
         final Set<SegmentCommitInfo> merging = mergeContext.getMergingSegments();
         MergeSpecification spec = null;
         final Map<String, List<SegmentCommitInfo>> commitInfos = new HashMap<>();
@@ -32,7 +41,7 @@ public class CriteriaBasedMergePolicy extends TieredMergePolicy {
                 continue;
             }
 
-            final String dwptGroupNumber = si.info.getAttribute("criteria");
+            final String dwptGroupNumber = si.info.getAttribute(CriteriaBasedCodec.BUCKET_NAME);
             commitInfos.computeIfAbsent(dwptGroupNumber, k -> new ArrayList<>()).add(si);
         }
 
@@ -43,8 +52,7 @@ public class CriteriaBasedMergePolicy extends TieredMergePolicy {
                     newSIS.add(info);
                 }
 
-                final MergeSpecification tieredMergePolicySpec =
-                    super.findMerges(mergeTrigger, newSIS, mergeContext);
+                final MergeSpecification tieredMergePolicySpec = in.findMerges(mergeTrigger, newSIS, mergeContext);
                 if (tieredMergePolicySpec != null) {
                     if (spec == null) {
                         spec = new MergeSpecification();
