@@ -25,6 +25,7 @@ import org.opensearch.common.lucene.LoggerInfoStream;
 import org.opensearch.common.lucene.Lucene;
 import org.opensearch.common.util.FeatureFlags;
 import org.opensearch.core.Assertions;
+import org.opensearch.index.codec.CriteriaBasedCodec;
 import org.opensearch.index.mapper.IdFieldMapper;
 import org.opensearch.index.mapper.SourceFieldMapper;
 import org.opensearch.index.shard.OpenSearchMergePolicy;
@@ -44,7 +45,8 @@ public final class IndexWriterUtils {
         CombinedDeletionPolicy deletionPolicy,
         SoftDeletesPolicy softDeletesPolicy,
         EngineConfig engineConfig,
-        Logger logger
+        Logger logger,
+        String associatedCriteria
     ) throws IOException {
         IndexWriterConfig config = getIndexWriterConfig(
             mergeScheduler,
@@ -53,7 +55,8 @@ public final class IndexWriterUtils {
             deletionPolicy,
             softDeletesPolicy,
             engineConfig,
-            logger
+            logger,
+            associatedCriteria
         );
 
         return createWriter(directory, config);
@@ -67,14 +70,15 @@ public final class IndexWriterUtils {
         }
     }
 
-    private static IndexWriterConfig getIndexWriterConfig(
+    public static IndexWriterConfig getIndexWriterConfig(
         MergeScheduler mergeScheduler,
         Boolean commitOnClose,
         IndexWriterConfig.OpenMode openMode,
         CombinedDeletionPolicy deletionPolicy,
         SoftDeletesPolicy softDeletesPolicy,
         EngineConfig engineConfig,
-        Logger logger
+        Logger logger,
+        String associatedCriteria
     ) {
         final IndexWriterConfig iwc = new IndexWriterConfig(engineConfig.getAnalyzer());
         iwc.setCommitOnClose(commitOnClose);
@@ -133,7 +137,12 @@ public final class IndexWriterUtils {
         iwc.setMergePolicy(new OpenSearchMergePolicy(mergePolicy));
         iwc.setSimilarity(engineConfig.getSimilarity());
         iwc.setRAMBufferSizeMB(engineConfig.getIndexingBufferSize().getMbFrac());
-        iwc.setCodec(engineConfig.getCodec());
+        if (engineConfig.getIndexSettings().isContextAwareEnabled() && associatedCriteria != null) {
+            iwc.setCodec(new CriteriaBasedCodec(engineConfig.getCodec(), associatedCriteria));
+        } else {
+            iwc.setCodec(engineConfig.getCodec());
+        }
+
         iwc.setUseCompoundFile(engineConfig.useCompoundFile());
         if (engineConfig.getIndexSort() != null) {
             iwc.setIndexSort(engineConfig.getIndexSort());

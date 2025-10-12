@@ -204,10 +204,13 @@ public class CompositeIndexWriterForAppendTests extends CriteriaBasedCompositeIn
             softDeletesField
         ) {
             @Override
-            DisposableIndexWriter createChildWriterUtil(String criteria, CriteriaBasedIndexWriterLookup lookup) throws IOException {
+            DisposableIndexWriter createChildWriterUtil(String associatedCriteria, CriteriaBasedIndexWriterLookup lookup)
+                throws IOException {
                 return new CompositeIndexWriter.DisposableIndexWriter(
                     new IndexWriter(
-                        store.newTempDirectory(BucketedCompositeDirectory.CHILD_DIRECTORY_PREFIX + criteria + "_" + UUID.randomUUID()),
+                        store.newTempDirectory(
+                            BucketedCompositeDirectory.CHILD_DIRECTORY_PREFIX + associatedCriteria + "_" + UUID.randomUUID()
+                        ),
                         newIndexWriterConfig()
                     ) {
                         @Override

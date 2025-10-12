@@ -66,6 +66,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
     private volatile boolean closed;
     private final SoftDeletesPolicy softDeletesPolicy;
     private final Store store;
+    private static final String DUMMY_TOMBSTONE_DOC_ID = "-2";
 
     public CompositeIndexWriter(
         EngineConfig engineConfig,
@@ -420,6 +421,13 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
             accumulatingIndexWriter.addIndexes(directoryToCombine.toArray(new Directory[0]));
             IOUtils.closeWhileHandlingException(directoryToCombine);
         }
+
+        deleteDummyTombstoneEntry();
+    }
+
+    private void deleteDummyTombstoneEntry() throws IOException {
+        Term uid = new Term(IdFieldMapper.NAME, DUMMY_TOMBSTONE_DOC_ID);
+        accumulatingIndexWriter.deleteDocuments(uid);
     }
 
     private void deletePreviousVersionsForUpdatedDocuments() throws IOException {
@@ -430,13 +438,13 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
             // delete went to mark for refresh.
             addDeleteEntryToWriter(deleteEntry, accumulatingIndexWriter);
         }
-
-        Term uid = new Term(IdFieldMapper.NAME, "-2");
-        accumulatingIndexWriter.deleteDocuments(uid);
     }
 
     /**
-     * For adding delete entry, we insert a Dummy entry along with a delete.
+     * This function is used for performing partial soft delete (delete without inserting a tombstone entry). This is
+     * used for maintaining a single version of documents across all IndexWriter in a shard. To do this, we perform a
+     * soft delete using a dummy temporary document as a tombstone entry during the soft update call. This dummy document
+     * is hard deleted just before refresh.
      *
      * @param deleteEntry
      * @param currentWriter
@@ -444,7 +452,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
      */
     private void addDeleteEntryToWriter(DeleteEntry deleteEntry, IndexWriter currentWriter) throws IOException {
         Document document = new Document();
-        document.add(new Field("_id", "-2", IdFieldMapper.Defaults.FIELD_TYPE));
+        document.add(new Field("_id", DUMMY_TOMBSTONE_DOC_ID, IdFieldMapper.Defaults.FIELD_TYPE));
         document.add(new NumericDocValuesField(VersionFieldMapper.NAME, deleteEntry.version));
         document.add(new NumericDocValuesField(SeqNoFieldMapper.PRIMARY_TERM_NAME, deleteEntry.primaryTerm));
         currentWriter.softUpdateDocument(deleteEntry.term, document, softDeletesField);
@@ -810,9 +818,30 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
         }
     }
 
+    /**
+     * For deleteDocument call, we will take a lock on current writer, do a partial delete of the
+     * document (delete without indexing tombstone entry). We do a similar thing for old map IndexWriter. For parent, we
+     * do a full delete (delete doc + tombstone entry). This ensures only a single tombstone entry is made after delete
+     * operation. Also doing a full delete on parent ensures, that accumulating IndexWriter is never left in an
+     * inconsistent state (which may become an issue with segrep).
+     *
+     * @param uid uid of the document that is getting deleted.
+     * @param isStaleOperation signify if this is a stale operation (say if document is already deleted).
+     * @param doc tombstone entry.
+     * @param softDeletesField the soft delete field.
+     *
+     * @throws IOException if there is a low-level IO error.
+     */
     @Override
-    public void deleteDocument(Term uid, boolean isStaleOperation, Iterable<? extends IndexableField> doc, Field... softDeletesField)
-        throws IOException {
+    public void deleteDocument(
+        Term uid,
+        boolean isStaleOperation,
+        Iterable<? extends IndexableField> doc,
+        long version,
+        long seqNo,
+        long primaryTerm,
+        Field... softDeletesField
+    ) throws IOException {
         ensureOpen();
         try (Releasable ignore1 = acquireLock(uid.bytes())) {
             CompositeIndexWriter.DisposableIndexWriter currentDisposableWriter = getIndexWriterForIdFromCurrent(uid.bytes());
@@ -821,7 +850,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
                     CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignore = currentDisposableWriter.getLookupMap().getMapReadLock()
                 ) {
                     if (currentDisposableWriter.getLookupMap().isClosed() == false) {
-                        deleteInLucene(uid, isStaleOperation, currentDisposableWriter.getIndexWriter(), doc, softDeletesField);
+                        addDeleteEntryToWriter(new DeleteEntry(uid, version, seqNo, primaryTerm), currentDisposableWriter.getIndexWriter());
                     }
                 }
             }
@@ -830,7 +859,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
             if (oldDisposableWriter != null) {
                 try (CriteriaBasedIndexWriterLookup.CriteriaBasedWriterLock ignore = oldDisposableWriter.getLookupMap().getMapReadLock()) {
                     if (oldDisposableWriter.getLookupMap().isClosed() == false) {
-                        deleteInLucene(uid, isStaleOperation, oldDisposableWriter.getIndexWriter(), doc, softDeletesField);
+                        addDeleteEntryToWriter(new DeleteEntry(uid, version, seqNo, primaryTerm), oldDisposableWriter.getIndexWriter());
                     }
                 }
             }
@@ -890,19 +919,20 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
     }
 
     CompositeIndexWriter.DisposableIndexWriter createChildWriterUtil(
-        String criteria,
+        String associatedCriteria,
         CompositeIndexWriter.CriteriaBasedIndexWriterLookup lookup
     ) throws IOException {
         return new CompositeIndexWriter.DisposableIndexWriter(
             IndexWriterUtils.createWriter(
-                store.newTempDirectory(CHILD_DIRECTORY_PREFIX + criteria + "_" + UUID.randomUUID()),
+                store.newTempDirectory(CHILD_DIRECTORY_PREFIX + associatedCriteria + "_" + UUID.randomUUID()),
                 new OpenSearchConcurrentMergeScheduler(engineConfig.getShardId(), engineConfig.getIndexSettings()),
                 true,
                 IndexWriterConfig.OpenMode.CREATE,
                 null,
                 softDeletesPolicy,
                 config(),
-                logger
+                logger,
+                associatedCriteria
             ),
             lookup
         );

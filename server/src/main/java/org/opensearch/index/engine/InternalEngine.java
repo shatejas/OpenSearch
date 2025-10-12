@@ -1613,7 +1613,15 @@ public class InternalEngine extends Engine {
                 + doc
                 + " ]";
             doc.add(softDeletesField);
-            documentIndexWriter.deleteDocument(delete.uid(), plan.addStaleOpToLucene || plan.currentlyDeleted, doc, softDeletesField);
+            documentIndexWriter.deleteDocument(
+                delete.uid(),
+                plan.addStaleOpToLucene || plan.currentlyDeleted,
+                doc,
+                plan.versionOfDeletion,
+                delete.seqNo(),
+                delete.primaryTerm(),
+                softDeletesField
+            );
             return new DeleteResult(plan.versionOfDeletion, delete.primaryTerm(), delete.seqNo(), plan.currentlyDeleted == false);
         } catch (final Exception ex) {
             /*
@@ -2430,16 +2438,18 @@ public class InternalEngine extends Engine {
      */
     private IndexWriter createWriter() throws IOException {
         try {
-            return IndexWriterUtils.createWriter(
-                store.directory(),
+            IndexWriterConfig iwc = IndexWriterUtils.getIndexWriterConfig(
                 mergeScheduler,
                 false,
                 IndexWriterConfig.OpenMode.APPEND,
                 combinedDeletionPolicy,
                 softDeletesPolicy,
                 engineConfig,
-                logger
+                logger,
+                null
             );
+
+            return createWriter(store.directory(), iwc);
         } catch (LockObtainFailedException ex) {
             logger.warn("could not lock IndexWriter", ex);
             throw ex;
