@@ -151,6 +151,7 @@ public class CriteriaBasedCompositeIndexWriterBaseTests extends OpenSearchTestCa
 
     protected static ParseContext.Document testDocumentWithTextField(String value) {
         ParseContext.Document document = testDocument();
+        document.setGroupingCriteria("testGrouping");
         document.add(new TextField("value", value, Field.Store.YES));
         return document;
     }
@@ -414,11 +415,11 @@ public class CriteriaBasedCompositeIndexWriterBaseTests extends OpenSearchTestCa
         };
     }
 
-    public static MapperService createMapperService() throws IOException {
+    private static MapperService createMapperService() throws IOException {
         return createMapperService("{\"properties\": {}}");
     }
 
-    public static MapperService createMapperService(String mapping) throws IOException {
+    private static MapperService createMapperService(String mapping) throws IOException {
         IndexMetadata indexMetadata = IndexMetadata.builder("test")
             .settings(
                 Settings.builder()

@@ -22,6 +22,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * CriteriaBasedMergePolicy
+ */
 public class CriteriaBasedMergePolicy extends FilterMergePolicy {
 
     protected final MergePolicy in;

@@ -371,6 +371,7 @@ public abstract class EngineTestCase extends OpenSearchTestCase {
 
     protected static ParseContext.Document testDocumentWithTextField(String value) {
         ParseContext.Document document = testDocument();
+        document.setGroupingCriteria("criteria");
         document.add(new TextField("value", value, Field.Store.YES));
         return document;
     }

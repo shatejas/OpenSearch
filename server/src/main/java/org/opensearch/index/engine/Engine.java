@@ -747,13 +747,13 @@ public abstract class Engine implements LifecycleAware, Closeable {
     }
 
     public SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper, SearcherScope scope) throws EngineException {
-        return acquireSearcherSupplier(wrapper, scope, emptySet());
+        return acquireSearcherSupplier(wrapper, scope, null);
     }
 
     /**
      * Acquires a point-in-time reader that can be used to create {@link Engine.Searcher}s on demand.
      */
-    public SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper, SearcherScope scope, Set<String> criteria)
+    public SearcherSupplier acquireSearcherSupplier(Function<Searcher, Searcher> wrapper, SearcherScope scope, @Nullable Set<String> criteria)
         throws EngineException {
         /* Acquire order here is store -> manager since we need
          * to make sure that the store is not closed before

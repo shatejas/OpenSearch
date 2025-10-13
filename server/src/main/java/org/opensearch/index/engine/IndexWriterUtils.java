@@ -34,6 +34,9 @@ import java.io.IOException;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 
+/**
+ * IndexWriterUtils contains utility methods for creating an IndexWriter.
+ */
 public final class IndexWriterUtils {
     private IndexWriterUtils() {}
 

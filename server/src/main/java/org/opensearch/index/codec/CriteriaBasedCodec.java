@@ -18,6 +18,9 @@ import org.apache.lucene.store.IOContext;
 
 import java.io.IOException;
 
+/**
+ * CriteriaBasedCodec
+ */
 public class CriteriaBasedCodec extends FilterCodec {
 
     private final String bucket;

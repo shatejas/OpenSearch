@@ -14,6 +14,9 @@ import org.apache.lucene.store.FilterDirectory;
 import java.io.IOException;
 import java.util.Arrays;
 
+/**
+ * BucketedCompositeDirectory
+ */
 public class BucketedCompositeDirectory extends FilterDirectory {
     /**
      * Sole constructor, typically called from sub-classes.

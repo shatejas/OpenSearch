@@ -32,6 +32,7 @@ import org.opensearch.common.util.concurrent.ReleasableLock;
 import org.opensearch.common.util.io.IOUtils;
 import org.opensearch.core.Assertions;
 import org.opensearch.index.mapper.IdFieldMapper;
+import org.opensearch.index.mapper.ParseContext;
 import org.opensearch.index.mapper.SeqNoFieldMapper;
 import org.opensearch.index.mapper.VersionFieldMapper;
 import org.opensearch.index.store.Store;
@@ -83,6 +84,9 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
         this.logger = Loggers.getLogger(Engine.class, engineConfig.getShardId());
     }
 
+    /**
+     * DisposableIndexWriter
+     */
     static class DisposableIndexWriter {
 
         private final IndexWriter indexWriter;
@@ -102,6 +106,9 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
         }
     }
 
+    /**
+     * CriteriaBasedIndexWriterLookup
+     */
     public static final class CriteriaBasedIndexWriterLookup implements Closeable {
         private final Map<String, DisposableIndexWriter> criteriaBasedIndexWriterMap;
         private final Map<BytesRef, DeleteEntry> lastDeleteEntrySet;
@@ -737,7 +744,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
     }
 
     @Override
-    public long addDocuments(Iterable<? extends Iterable<? extends IndexableField>> docs, Term uid) throws IOException {
+    public long addDocuments(Iterable<ParseContext.Document> docs, Term uid) throws IOException {
         // We obtain a read lock on a child level IndexWriter and then return it. Post Indexing completes, we close this
         // IndexWriter.
         ensureOpen();
@@ -752,8 +759,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
         }
     }
 
-    @Override
-    public long addDocument(Iterable<? extends IndexableField> doc, Term uid) throws IOException {
+    public long addDocument(ParseContext.Document doc, Term uid) throws IOException {
         ensureOpen();
         final String criteria = getGroupingCriteriaForDoc(doc);
         DisposableIndexWriter disposableIndexWriter = getAssociatedIndexWriterForCriteria(criteria);
@@ -769,7 +775,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
     @Override
     public void softUpdateDocuments(
         Term uid,
-        Iterable<? extends Iterable<? extends IndexableField>> docs,
+        Iterable<ParseContext.Document> docs,
         long version,
         long seqNo,
         long primaryTerm,
@@ -795,7 +801,7 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
     @Override
     public void softUpdateDocument(
         Term uid,
-        Iterable<? extends IndexableField> doc,
+        ParseContext.Document doc,
         long version,
         long seqNo,
         long primaryTerm,
@@ -832,11 +838,10 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
      *
      * @throws IOException if there is a low-level IO error.
      */
-    @Override
     public void deleteDocument(
         Term uid,
         boolean isStaleOperation,
-        Iterable<? extends IndexableField> doc,
+        ParseContext.Document doc,
         long version,
         long seqNo,
         long primaryTerm,
@@ -886,19 +891,8 @@ public class CompositeIndexWriter implements ReferenceManager.RefreshListener, D
         return computeIndexWriterIfAbsentForCriteria(criteria, childIndexWriterFactory);
     }
 
-    private String getGroupingCriteriaForDoc(final Iterable<? extends IndexableField> docs) {
-        for (IndexableField field : docs) {
-            if (field.name().equals("Marketplace")) {
-                String tenantId = field.stringValue();
-                if (tenantId == null || tenantId.isBlank()) {
-                    return "-1";
-                }
-
-                return tenantId;
-            }
-        }
-
-        return "-1";
+    private String getGroupingCriteriaForDoc(final ParseContext.Document doc) {
+        return doc == null ? null : doc.getGroupingCriteria();
     }
 
     @Override
