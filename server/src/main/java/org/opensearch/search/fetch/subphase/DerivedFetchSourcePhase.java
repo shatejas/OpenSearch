@@ -30,6 +30,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Builds _source for derived source indices by deriving only the fields matching includes/excludes.
+ *
+ * @opensearch.internal
+ */
 public final class DerivedFetchSourcePhase implements FetchSubPhase {
 
     private static final Logger logger = LogManager.getLogger(DerivedFetchSourcePhase.class);

@@ -29,6 +29,11 @@ import java.util.concurrent.Callable;
 
 import static java.util.Collections.emptyMap;
 
+/**
+ * Fetch phase for indices with derived source enabled. Parallelizes per-segment and derives fields lazily.
+ *
+ * @opensearch.internal
+ */
 public class DerivedFetchPhase implements Fetch {
 
     private final FetchSubPhase[] fetchSubPhases;

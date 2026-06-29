@@ -22,6 +22,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * A SourceLookup that lazily derives field values from doc-values instead of loading stored _source.
+ *
+ * @opensearch.internal
+ */
 public class DerivedSourceLookup extends SourceLookup {
 
     private static final Logger log = LogManager.getLogger(DerivedSourceLookup.class);

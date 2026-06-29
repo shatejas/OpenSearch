@@ -61,6 +61,7 @@ import org.opensearch.script.ScriptService;
 import org.opensearch.search.MockSearchService;
 import org.opensearch.search.SearchService;
 import org.opensearch.search.deciders.ConcurrentSearchRequestDecider;
+import org.opensearch.search.fetch.DerivedFetchPhase;
 import org.opensearch.search.fetch.FetchPhase;
 import org.opensearch.search.query.QueryPhase;
 import org.opensearch.tasks.TaskResourceTrackingService;
@@ -172,6 +173,7 @@ public class MockNode extends Node {
         BigArrays bigArrays,
         QueryPhase queryPhase,
         FetchPhase fetchPhase,
+        DerivedFetchPhase derivedFetchPhase,
         ResponseCollectorService responseCollectorService,
         CircuitBreakerService circuitBreakerService,
         Executor indexSearcherExecutor,
@@ -189,6 +191,7 @@ public class MockNode extends Node {
                 bigArrays,
                 queryPhase,
                 fetchPhase,
+                derivedFetchPhase,
                 responseCollectorService,
                 circuitBreakerService,
                 indexSearcherExecutor,
@@ -206,6 +209,7 @@ public class MockNode extends Node {
             bigArrays,
             queryPhase,
             fetchPhase,
+            derivedFetchPhase,
             circuitBreakerService,
             indexSearcherExecutor,
             taskResourceTrackingService,

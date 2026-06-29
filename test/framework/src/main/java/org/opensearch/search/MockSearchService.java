@@ -39,6 +39,7 @@ import org.opensearch.indices.IndicesService;
 import org.opensearch.node.MockNode;
 import org.opensearch.plugins.Plugin;
 import org.opensearch.script.ScriptService;
+import org.opensearch.search.fetch.DerivedFetchPhase;
 import org.opensearch.search.fetch.FetchPhase;
 import org.opensearch.search.internal.ReaderContext;
 import org.opensearch.search.query.QueryPhase;
@@ -98,6 +99,7 @@ public class MockSearchService extends SearchService {
         BigArrays bigArrays,
         QueryPhase queryPhase,
         FetchPhase fetchPhase,
+        DerivedFetchPhase derivedFetchPhase,
         CircuitBreakerService circuitBreakerService,
         Executor indexSearcherExecutor,
         TaskResourceTrackingService taskResourceTrackingService,
@@ -111,6 +113,7 @@ public class MockSearchService extends SearchService {
             bigArrays,
             queryPhase,
             fetchPhase,
+            derivedFetchPhase,
             null,
             circuitBreakerService,
             indexSearcherExecutor,

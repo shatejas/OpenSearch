@@ -573,7 +573,7 @@ public class ScaledFloatFieldMapper extends ParametrizedFieldMapper {
      *       both doc values and stored field
      */
     @Override
-    protected DerivedFieldGenerator derivedFieldGenerator() {
+    public DerivedFieldGenerator derivedFieldGenerator() {
         return new DerivedFieldGenerator(
             mappedFieldType,
             new SortedNumericDocValuesFetcher(mappedFieldType, simpleName()),
