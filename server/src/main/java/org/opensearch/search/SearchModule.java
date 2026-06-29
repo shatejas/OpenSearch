@@ -242,6 +242,7 @@ import org.opensearch.search.aggregations.pipeline.StatsBucketPipelineAggregatio
 import org.opensearch.search.aggregations.pipeline.SumBucketPipelineAggregationBuilder;
 import org.opensearch.search.aggregations.support.ValuesSourceRegistry;
 import org.opensearch.search.deciders.ConcurrentSearchRequestDecider;
+import org.opensearch.search.fetch.DerivedFetchPhase;
 import org.opensearch.search.fetch.FetchPhase;
 import org.opensearch.search.fetch.FetchSubPhase;
 import org.opensearch.search.fetch.subphase.ExplainPhase;
@@ -1318,6 +1319,10 @@ public class SearchModule {
 
     public FetchPhase getFetchPhase() {
         return new FetchPhase(fetchSubPhases);
+    }
+
+    public DerivedFetchPhase getDerivedFetchPhase() {
+        return new DerivedFetchPhase(fetchSubPhases);
     }
 
     public QueryPhase getQueryPhase() {

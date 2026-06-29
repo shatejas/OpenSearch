@@ -268,6 +268,7 @@ import org.opensearch.search.aggregations.support.AggregationUsageService;
 import org.opensearch.search.backpressure.SearchBackpressureService;
 import org.opensearch.search.backpressure.settings.SearchBackpressureSettings;
 import org.opensearch.search.deciders.ConcurrentSearchRequestDecider;
+import org.opensearch.search.fetch.DerivedFetchPhase;
 import org.opensearch.search.fetch.FetchPhase;
 import org.opensearch.search.pipeline.SearchPipelineService;
 import org.opensearch.search.query.QueryPhase;
@@ -1687,6 +1688,7 @@ public class Node implements Closeable {
                 bigArrays,
                 searchModule.getQueryPhase(),
                 searchModule.getFetchPhase(),
+                searchModule.getDerivedFetchPhase(),
                 responseCollectorService,
                 circuitBreakerService,
                 searchModule.getIndexSearcherExecutor(threadPool),
@@ -2447,6 +2449,7 @@ public class Node implements Closeable {
         BigArrays bigArrays,
         QueryPhase queryPhase,
         FetchPhase fetchPhase,
+        DerivedFetchPhase derivedFetchPhase,
         ResponseCollectorService responseCollectorService,
         CircuitBreakerService circuitBreakerService,
         Executor indexSearcherExecutor,
@@ -2463,6 +2466,7 @@ public class Node implements Closeable {
             bigArrays,
             queryPhase,
             fetchPhase,
+            derivedFetchPhase,
             responseCollectorService,
             circuitBreakerService,
             indexSearcherExecutor,

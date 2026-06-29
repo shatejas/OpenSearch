@@ -97,7 +97,7 @@ import static java.util.Collections.emptyMap;
  * @opensearch.api
  */
 @PublicApi(since = "1.0.0")
-public class FetchPhase {
+public class FetchPhase implements Fetch {
     private static final Logger LOGGER = LogManager.getLogger(FetchPhase.class);
 
     private final FetchSubPhase[] fetchSubPhases;

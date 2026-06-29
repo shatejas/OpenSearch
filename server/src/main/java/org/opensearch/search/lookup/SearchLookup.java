@@ -81,6 +81,7 @@ public class SearchLookup {
     private final FieldsLookup fieldsLookup;
     private final BiFunction<MappedFieldType, Supplier<SearchLookup>, IndexFieldData<?>> fieldDataLookup;
     private final int shardId;
+    private final Supplier<SourceLookup> sourceLookupFactory;
     private final ConcurrentHashMap<Long, SourceLookup> sourceLookupMap = new ConcurrentHashMap<>();
 
     /**
@@ -103,7 +104,16 @@ public class SearchLookup {
         BiFunction<MappedFieldType, Supplier<SearchLookup>, IndexFieldData<?>> fieldDataLookup,
         int shardId
     ) {
-        this(mapperService, fieldDataLookup, shardId, new FieldsLookup(mapperService));
+        this(mapperService, fieldDataLookup, shardId, new FieldsLookup(mapperService), SourceLookup::new);
+    }
+
+    public SearchLookup(
+        MapperService mapperService,
+        BiFunction<MappedFieldType, Supplier<SearchLookup>, IndexFieldData<?>> fieldDataLookup,
+        int shardId,
+        Supplier<SourceLookup> sourceLookupFactory
+    ) {
+        this(mapperService, fieldDataLookup, shardId, new FieldsLookup(mapperService), sourceLookupFactory);
     }
 
     public SearchLookup(
@@ -111,6 +121,16 @@ public class SearchLookup {
         BiFunction<MappedFieldType, Supplier<SearchLookup>, IndexFieldData<?>> fieldDataLookup,
         int shardId,
         FieldsLookup fieldsLookup
+    ) {
+        this(mapperService, fieldDataLookup, shardId, fieldsLookup, SourceLookup::new);
+    }
+
+    public SearchLookup(
+        MapperService mapperService,
+        BiFunction<MappedFieldType, Supplier<SearchLookup>, IndexFieldData<?>> fieldDataLookup,
+        int shardId,
+        FieldsLookup fieldsLookup,
+        Supplier<SourceLookup> sourceLookupFactory
     ) {
         this.fieldChain = Collections.emptySet();
         docMap = new DocLookup(
@@ -120,6 +140,7 @@ public class SearchLookup {
         this.fieldsLookup = fieldsLookup;
         this.fieldDataLookup = fieldDataLookup;
         this.shardId = shardId;
+        this.sourceLookupFactory = sourceLookupFactory;
     }
 
     /**
@@ -138,6 +159,7 @@ public class SearchLookup {
         this.fieldsLookup = searchLookup.fieldsLookup;
         this.fieldDataLookup = searchLookup.fieldDataLookup;
         this.shardId = searchLookup.shardId;
+        this.sourceLookupFactory = searchLookup.sourceLookupFactory;
     }
 
     /**
@@ -168,7 +190,7 @@ public class SearchLookup {
         return new LeafSearchLookup(
             context,
             docMap.getLeafDocLookup(context),
-            sourceLookupMap.computeIfAbsent(Thread.currentThread().threadId(), K -> new SourceLookup()),
+            sourceLookupMap.computeIfAbsent(Thread.currentThread().threadId(), K -> sourceLookupFactory.get()),
             fieldsLookup.getLeafFieldsLookup(context)
         );
     }
@@ -181,7 +203,7 @@ public class SearchLookup {
      * Returned SourceLookup will be unrelated to any created LeafSearchLookups. Instead, use {@link LeafSearchLookup#source()} to access the related {@link SearchLookup}.
      */
     public SourceLookup source() {
-        return sourceLookupMap.computeIfAbsent(Thread.currentThread().threadId(), K -> new SourceLookup());
+        return sourceLookupMap.computeIfAbsent(Thread.currentThread().threadId(), K -> sourceLookupFactory.get());
     }
 
     public int shardId() {

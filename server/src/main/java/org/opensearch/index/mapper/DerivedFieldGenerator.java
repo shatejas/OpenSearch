@@ -9,15 +9,20 @@
 package org.opensearch.index.mapper;
 
 import org.apache.lucene.index.LeafReader;
+import org.opensearch.common.annotation.PublicApi;
 import org.opensearch.core.xcontent.XContentBuilder;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Objects;
 
 /**
  * DerivedSourceGenerator is used to generate derived source field based on field mapping and how
  * it is stored in lucene
+ *
+ * @opensearch.api
  */
+@PublicApi(since = "2.18.0")
 public class DerivedFieldGenerator {
 
     private final MappedFieldType mappedFieldType;
@@ -57,5 +62,11 @@ public class DerivedFieldGenerator {
      */
     public void generate(XContentBuilder builder, LeafReader reader, int docId) throws IOException {
         fieldValueFetcher.write(builder, fieldValueFetcher.fetch(reader, docId));
+    }
+
+    public Object generate(LeafReader reader, int docId) throws IOException {
+        List<Object> fieldValues = fieldValueFetcher.fetch(reader, docId).stream()
+            .map(fieldValueFetcher::convert).toList();
+        return fieldValues.size() == 1 ? fieldValues.get(0) : fieldValues;
     }
 }

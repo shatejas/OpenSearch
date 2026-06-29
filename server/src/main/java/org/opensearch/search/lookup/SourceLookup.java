@@ -45,6 +45,7 @@ import org.opensearch.common.xcontent.support.XContentMapValues;
 import org.opensearch.core.common.bytes.BytesReference;
 import org.opensearch.core.xcontent.MediaType;
 import org.opensearch.index.fieldvisitor.FieldsVisitor;
+import org.opensearch.index.mapper.RootObjectMapper;
 import org.opensearch.search.fetch.subphase.FetchSourceContext;
 
 import java.io.IOException;

@@ -780,4 +780,13 @@ public class RootObjectMapper extends ObjectMapper {
         }
         return BytesReference.bytes(builder);
     }
+
+    public Object deriveFieldValue(String fieldName, LeafReader reader, int docId) throws IOException {
+        Mapper mapper = getMapper(fieldName);
+        if (mapper instanceof FieldMapper fieldMapper) {
+            // Use the mapper's value fetcher to read from doc_values
+            return fieldMapper.derivedFieldGenerator().generate(reader, docId);
+        }
+        return null; // not derivable
+    }
 }

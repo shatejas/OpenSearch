@@ -115,6 +115,8 @@ import org.opensearch.search.collapse.CollapseContext;
 import org.opensearch.search.deciders.ConcurrentSearchRequestDecider;
 import org.opensearch.search.dfs.DfsPhase;
 import org.opensearch.search.dfs.DfsSearchResult;
+import org.opensearch.search.fetch.DerivedFetchPhase;
+import org.opensearch.search.fetch.Fetch;
 import org.opensearch.search.fetch.FetchPhase;
 import org.opensearch.search.fetch.FetchSearchResult;
 import org.opensearch.search.fetch.QueryFetchSearchResult;
@@ -481,6 +483,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     private final QueryPhase queryPhase;
 
     private final FetchPhase fetchPhase;
+    private final DerivedFetchPhase derivedFetchPhase;
     private final Collection<ConcurrentSearchRequestDecider.Factory> concurrentSearchDeciderFactories;
 
     private volatile long defaultKeepAlive;
@@ -525,6 +528,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         BigArrays bigArrays,
         QueryPhase queryPhase,
         FetchPhase fetchPhase,
+        DerivedFetchPhase derivedFetchPhase,
         ResponseCollectorService responseCollectorService,
         CircuitBreakerService circuitBreakerService,
         Executor indexSearcherExecutor,
@@ -542,6 +546,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         this.bigArrays = bigArrays;
         this.queryPhase = queryPhase;
         this.fetchPhase = fetchPhase;
+        this.derivedFetchPhase = derivedFetchPhase;
         this.multiBucketConsumerService = new MultiBucketConsumerService(
             clusterService,
             settings,
@@ -917,10 +922,17 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         }
     }
 
+    private Fetch getFetchPhaseFor(SearchContext context) {
+        if (context.getQueryShardContext().getIndexSettings().isDerivedSourceEnabled()) {
+            return derivedFetchPhase;
+        }
+        return fetchPhase;
+    }
+
     private QueryFetchSearchResult executeFetchPhase(ReaderContext reader, SearchContext context, long afterQueryTime) {
         try (SearchOperationListenerExecutor executor = new SearchOperationListenerExecutor(context, true, afterQueryTime)) {
             shortcutDocIdsToLoad(context);
-            fetchPhase.execute(context);
+            getFetchPhaseFor(context).execute(context, "fetch");
             if (context.getProfilers() != null) {
                 ProfileShardResult shardResults = SearchProfileShardResults.buildShardResults(context.getProfilers(), context.request());
                 context.queryResult().profileResults(shardResults);
@@ -1076,7 +1088,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 try (
                     SearchOperationListenerExecutor executor = new SearchOperationListenerExecutor(searchContext, true, System.nanoTime())
                 ) {
-                    fetchPhase.execute(searchContext);
+                    getFetchPhaseFor(searchContext).execute(searchContext, "fetch");
                     if (searchContext.getProfilers() != null) {
                         ProfileShardResult shardResults = SearchProfileShardResults.buildFetchOnlyShardResults(
                             searchContext.getProfilers(),

@@ -74,6 +74,7 @@ import org.opensearch.script.ScriptFactory;
 import org.opensearch.script.ScriptService;
 import org.opensearch.search.aggregations.support.AggregationUsageService;
 import org.opensearch.search.aggregations.support.ValuesSourceRegistry;
+import org.opensearch.search.lookup.DerivedSourceLookup;
 import org.opensearch.search.lookup.SearchLookup;
 import org.opensearch.search.startree.StarTreeQueryContext;
 import org.opensearch.transport.RemoteClusterAware;
@@ -539,9 +540,14 @@ public class QueryShardContext extends BaseQueryRewriteContext {
      * in other phases.
      */
     public SearchLookup newFetchLookup() {
-        /*
-         * Real customization coming soon, I promise!
-         */
+        if (indexSettings.isDerivedSourceEnabled()) {
+            return new SearchLookup(
+                getMapperService(),
+                (fieldType, searchLookup) -> indexFieldDataService.apply(fieldType, fullyQualifiedIndex.getName(), searchLookup),
+                shardId,
+                () -> new DerivedSourceLookup(getMapperService().documentMapper().root())
+            );
+        }
         return new SearchLookup(
             getMapperService(),
             (fieldType, searchLookup) -> indexFieldDataService.apply(fieldType, fullyQualifiedIndex.getName(), searchLookup),
